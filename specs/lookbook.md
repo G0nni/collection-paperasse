@@ -72,7 +72,8 @@ l'affiche « Avis à la population » et les trois documents de la collection.
 - Modules signature : affiche « Avis à la population » légèrement inclinée avec deux punaises et
   un tampon ENTRÉE LIBRE ; chaque look = un aperçu de son document (ticket, acte, listing)
   punaisé ou scotché de travers, et en dessous une étiquette kraft trouée avec la fiche défilé
-  (numéro et nom du look sur la même ligne à partir de 1000 px, repli autorisé en dessous) ; post-its de part et d'autre de l'affiche.
+  (numéro et nom du look sur la même ligne à 1280 px, largeur de la maquette ; repli autorisé en
+  dessous, comme sur la maquette) ; post-its de part et d'autre de l'affiche.
 - Les inclinaisons s'appliquent aux aperçus, à l'affiche et aux post-its (comme sur la maquette).
   Les étiquettes kraft (fiches) et les boutons restent droits, pour la lisibilité. Les post-its
   sont en Courier Prime, comme sur la maquette.

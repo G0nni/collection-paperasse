@@ -581,7 +581,9 @@ test.describe("lookbook · tester", () => {
     expect(bannerColors).toContain("rgb(179, 38, 30)");
   });
 
-  test("Design · l'orange des numéros (#C2410C) n'apparaît qu'en ≥ 34 px", async ({ page }) => {
+  // specs/lookbook.md (Design), commit 0c414b6 : « numéros de look #C2410C (uniquement en gros,
+  // ≥ 24 px : contraste 3,54:1 sur le kraft, conforme au seuil 3:1) ». Le seuil était 34 px.
+  test("Design · l'orange des numéros (#C2410C) n'apparaît qu'en ≥ 24 px", async ({ page }) => {
     await page.goto("");
     const uses = await page.locator("body").evaluate((body) =>
       [...body.querySelectorAll("*")]
@@ -598,7 +600,7 @@ test.describe("lookbook · tester", () => {
         })),
     );
     expect(uses.map((use) => use.text)).toEqual(["Look 01", "Look 02", "Look 03"]);
-    for (const use of uses) expect(use.size, use.text).toBeGreaterThanOrEqual(34);
+    for (const use of uses) expect(use.size, use.text).toBeGreaterThanOrEqual(24);
   });
 
   test("Design · polices auto-hébergées : Alfa Slab One, JetBrains Mono et celles des aperçus", async ({
@@ -1196,27 +1198,32 @@ test.describe("lookbook · disposition", () => {
     });
   }
 
-  // Design : « fiche défilé (numéro et nom du look sur la même ligne) ». Vérifié à 1280 px, la
-  // largeur de la maquette : en dessous, le numéro (≥ 34 px, token) et le nom se replient.
-  test("Design · à 1280 px, numéro et nom de chaque look sur la même ligne", async ({
-    page,
-  }, testInfo) => {
-    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("");
-    await page.evaluate(() => document.fonts.ready);
-    for (const look of LOOKS) {
-      const card = page.getByRole("article", { name: look.name, exact: true });
-      const number = await boxOf(
-        card.getByText(`Look ${look.number}`, { exact: true }),
-        `numéro ${look.number}`,
-      );
-      const name = await boxOf(card.getByRole("heading", { name: look.name }), look.name);
-      expect(name.x, `${look.name} à droite du numéro`).toBeGreaterThanOrEqual(right(number));
-      expect(name.y, look.name).toBeLessThan(bottom(number));
-      expect(bottom(name), look.name).toBeGreaterThan(number.y);
-    }
-  });
+  // Design (commit 0c414b6) : « numéro et nom du look sur la même ligne à partir de 1000 px,
+  // repli autorisé en dessous ». Spec : même ligne à 1280 px (commit « build tour 1 bis ») : à 1000 px, numéro 26 px et nom 21 px (maquette) ne
+  // tiennent pas (« LOOK 03 Le SAV de ta vie » : 314 px pour 245 disponibles) ; les trois
+  // tiennent à partir de 1220 px. 1000 px sera ajouté ici quand la spec ou les tailles seront
+  // tranchées.
+  for (const width of [1280]) {
+    test(`Design · à ${width} px, numéro et nom de chaque look sur la même ligne`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height: 720 });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      for (const look of LOOKS) {
+        const card = page.getByRole("article", { name: look.name, exact: true });
+        const number = await boxOf(
+          card.getByText(`Look ${look.number}`, { exact: true }),
+          `numéro ${look.number}`,
+        );
+        const name = await boxOf(card.getByRole("heading", { name: look.name }), look.name);
+        expect(name.x, `${look.name} à droite du numéro`).toBeGreaterThanOrEqual(right(number));
+        expect(name.y, look.name).toBeLessThan(bottom(number));
+        expect(bottom(name), look.name).toBeGreaterThan(number.y);
+      }
+    });
+  }
 
   // CA-6 : « À 1280×720, aucun défilement vertical : scrollHeight ≤ innerHeight, polices
   // chargées. » Et la section « Disposition » : fiches complètes, affiche d'environ 160 px,

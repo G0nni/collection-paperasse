@@ -30,7 +30,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
         <header class="masthead">
           <div class="brand">
             <h1>{TEXT.heading}</h1>
-            <p class="subtitle" id="subtitle">
+            <p class="subtitle free-text" id="subtitle">
               {TEXT.tagline}
             </p>
           </div>
@@ -41,6 +41,9 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
             <button type="button" class="ghost-button" id="copy-ticket" hidden>
               {TEXT.copyTicket}
             </button>
+            {/* Confirmation de copie, à côté du bouton (spec, « Écrans ») : jamais par-dessus le
+                ticket. Vide, elle ne prend aucune place mais reste une région live. */}
+            <p class="copy-status" id="copy-status" aria-live="polite"></p>
             {/* Enseigne de taxi : OCCUPÉ pendant le Compteur (bouton Terminer). */}
             <button type="button" class="sign sign-busy" id="finish" hidden>
               <span class="sign-lamp" aria-hidden="true">
@@ -56,14 +59,9 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
             </button>
           </div>
         </header>
-        {/* Retours de copie et messages du lien. Sur le Compteur en grand écran, cette pile
-            flotte sous le ticket : elle ne prend jamais de hauteur à la liste (CA-11). */}
+        {/* Messages du lien. Sur le Compteur en grand écran, cette pile flotte sous le ticket :
+            elle ne prend jamais de hauteur à la liste (CA-11), et « Fermer » la retire. */}
         <div class="feedback">
-          <p class="message" id="copy-status" aria-live="polite"></p>
-          <p class="share-fallback" id="copy-fallback" hidden>
-            <label for="copy-field">{TEXT.linkField}</label>
-            <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
-          </p>
           <div class="notices">
             <div class="notices-text" role="status">
               <ul class="messages" id="notices"></ul>
@@ -203,7 +201,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
               {TEXT.receiptHeading}
               <span aria-hidden="true">***</span>
             </h2>
-            <p class="receipt-title" id="receipt-title" hidden></p>
+            <p class="receipt-title free-text" id="receipt-title" hidden></p>
             <p class="receipt-meta" id="receipt-when"></p>
             <p class="receipt-meta">{`${TEXT.deviceTime} · ${TEXT.receiptCounter}`}</p>
             <hr />
@@ -245,6 +243,24 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
         <p class="message">{TEXT.noScript}</p>
       </noscript>
     </main>
+
+    {/* Repli de copie (CA-7) : modal, Échap ou « Fermer » le referment, le focus revient au
+        bouton de copie (scripts/copy.ts). */}
+    <dialog class="copy-dialog" id="copy-dialog" aria-labelledby="copy-dialog-title">
+      <h2 class="copy-dialog-title" id="copy-dialog-title">
+        {TEXT.copyDialogTitle}
+      </h2>
+      <p class="copy-dialog-text">{TEXT.copyRefused}</p>
+      <p class="copy-dialog-field">
+        <label for="copy-field">{TEXT.linkField}</label>
+        <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
+      </p>
+      <form class="copy-dialog-actions" method="dialog">
+        <button type="submit" class="ghost-button">
+          {TEXT.dismiss}
+        </button>
+      </form>
+    </dialog>
 
     <CollectionTag slug="reunion-metre" />
 
@@ -424,7 +440,17 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     color: var(--muted);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
+  }
+
+  /* Textes libres venant du lien (titre, libellés) : ce qui déborde est coupé, pour qu'un texte
+     « zalgo » ou sans espace ne recouvre ni un montant ni une ligne voisine, et n'élargisse pas
+     la page (CLAUDE.md, Sécurité). La petite marge laisse respirer les accents légitimes. */
+  .free-text,
+  .receipt-lines :global(dt) {
+    min-width: 0;
     overflow-wrap: anywhere;
+    overflow: clip;
+    overflow-clip-margin: 0.2em;
   }
 
   .actions {
@@ -522,11 +548,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     list-style: none;
   }
 
-  .message {
-    margin: 0;
-  }
-
-  .message:not(:empty),
+  .message,
   .notices:has(li) {
     margin: 0.625rem 0 0;
     padding: 0.5rem 0.875rem;
@@ -576,24 +598,75 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     color: var(--muted);
   }
 
-  .share-fallback {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 0.75rem;
-    margin: 0.625rem 0 0;
-    background: var(--bg);
+  /* Confirmation de copie : coche ET texte, jamais la couleur seule. Vide, elle annule l'écart
+     que la rangée de boutons lui donne. */
+  .copy-status {
+    margin: 0;
+    color: var(--amber);
+    font-size: 0.875rem;
+    font-weight: 700;
   }
 
-  .share-fallback label {
+  .copy-status:empty {
+    margin-left: -0.625rem;
+  }
+
+  .copy-status:not(:empty)::before {
+    content: "✓ ";
+  }
+
+  /* ---------- Repli de copie ---------- */
+
+  .copy-dialog {
+    box-sizing: border-box;
+    width: min(34rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    padding: 1.25rem;
+    border: 2px solid var(--amber);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--text);
+  }
+
+  .copy-dialog::backdrop {
+    background: rgb(0 0 0 / 0.7);
+  }
+
+  .copy-dialog-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .copy-dialog-text {
+    margin: 0 0 0.875rem;
+    font-size: 0.9375rem;
+  }
+
+  .copy-dialog-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0 0 1rem;
+  }
+
+  .copy-dialog-field label {
     color: var(--muted);
     font-size: 0.875rem;
     font-weight: 600;
   }
 
-  .share-fallback input {
-    flex: 1 1 16rem;
-    min-width: 0;
+  .copy-dialog-field input {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+
+  .copy-dialog-actions {
+    display: flex;
+    justify-content: end;
+    margin: 0;
   }
 
   /* ---------- Disposition des écrans ---------- */
@@ -1170,7 +1243,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
       min-height: 0;
     }
 
-    /* Retours de copie et messages du lien : une pile qui flotte en bas de la colonne du ticket,
+    /* Messages du lien : une pile qui flotte en bas de la colonne du ticket,
        là où le ticket en cours laisse de la place. Elle ne prend aucune hauteur à la liste des
        participants, quel que soit le nombre de messages (CA-11) ; « Fermer » la retire. */
     main[data-screen="meter"] {
@@ -1188,16 +1261,9 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
       overflow-y: auto;
     }
 
-    main[data-screen="meter"] .message:not(:empty),
-    main[data-screen="meter"] .share-fallback,
     main[data-screen="meter"] .notices:has(li) {
       outline: 1px solid var(--line);
       box-shadow: 0 8px 28px rgb(0 0 0 / 0.65);
-    }
-
-    main[data-screen="meter"] .share-fallback {
-      padding: 0.625rem 0.875rem;
-      background: var(--panel);
     }
 
     main[data-screen="meter"] .people-list {
@@ -1213,6 +1279,37 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
 
     main[data-screen="meter"] .receipt {
       overflow-y: auto;
+    }
+
+    /* En-tête sur une seule rangée : le titre y tient sur une ligne, coupé par des points de
+       suspension. Il est lu en entier par les lecteurs d'écran et affiché en entier en tête du
+       ticket, juste à côté. Sans ça, un long titre fait passer l'en-tête sur deux rangées et
+       vole sa hauteur au ticket (960 × 600, 1366 × 768 à 125 %). */
+    main[data-screen="meter"] .brand {
+      flex: 1 1 0;
+      flex-wrap: nowrap;
+    }
+
+    main[data-screen="meter"] h1 {
+      flex: none;
+    }
+
+    main[data-screen="meter"] .subtitle {
+      flex: 1 1 0;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* Ticket en cours, resserré : il tient dans sa colonne sans défiler, même avec un titre de
+       plusieurs lignes. Un cadre qui défile sans rien de focalisable ne serait pas lisible au
+       clavier. */
+    main[data-screen="meter"] .paper {
+      gap: 0.3125rem;
+      padding-block: 1rem 0.75rem;
+    }
+
+    main[data-screen="meter"] .barcode {
+      height: 28px;
     }
   }
 
@@ -1255,7 +1352,6 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
   .receipt-title {
     font-weight: 700;
     text-align: center;
-    overflow-wrap: anywhere;
   }
 
   .receipt-meta {
@@ -1295,11 +1391,6 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     display: flex;
     justify-content: space-between;
     gap: 0.75rem;
-  }
-
-  .receipt-lines :global(dt) {
-    min-width: 0;
-    overflow-wrap: anywhere;
   }
 
   .receipt-lines :global(dd) {

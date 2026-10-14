@@ -51,9 +51,9 @@ export function canRemove(checks: readonly RowCheck[], index: number): boolean {
 }
 
 /** Lignes de départ du formulaire, depuis les participants d'une réunion. */
-export function rowsFrom(participants: readonly Participant[], firstId = 1): DraftRow[] {
+export function rowsFrom(participants: readonly Participant[]): DraftRow[] {
   return participants.map((participant, index) => ({
-    id: firstId + index,
+    id: index + 1,
     label: participant.label,
     rate: String(participant.rate),
   }));

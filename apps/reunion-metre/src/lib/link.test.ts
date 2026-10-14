@@ -1,7 +1,7 @@
 import { NBSP } from "@paperasse/shared/typography";
 import { describe, expect, it } from "vitest";
 import { buildQuery, fitsInLink, parseLink, parseParticipant, parseTitle } from "./link";
-import { ROLES, defaultMeeting, type Meeting } from "./meeting";
+import { ROLES, defaultMeeting, screenOf, type Meeting } from "./meeting";
 
 /** 14/10/2025 09:00:00 à Paris : le `s` de l'exemple de la spec. */
 const S = 1_760_425_200;
@@ -17,7 +17,7 @@ const ONE = "p=50|Kevin";
 describe("parseLink · écrans", () => {
   it("CA-1 · sans paramètre : Configuration, 5 suggestions, tarif B, aucun message", () => {
     const parsed = parseLink("", NOW_MS);
-    expect(parsed.screen).toBe("setup");
+    expect(screenOf(parsed.meeting)).toBe("setup");
     expect(parsed.notices).toEqual([]);
     expect(parsed.meeting).toEqual(defaultMeeting());
     expect(parsed.meeting.tariff).toBe("B");
@@ -33,7 +33,7 @@ describe("parseLink · écrans", () => {
   it("l'exemple de la spec ouvre le Compteur", () => {
     const parsed = parseLink(SPEC_EXAMPLE, NOW_MS);
     expect(parsed.notices).toEqual([]);
-    expect(parsed.screen).toBe("meter");
+    expect(screenOf(parsed.meeting)).toBe("meter");
     expect(parsed.meeting).toEqual({
       tariff: "B",
       participants: [
@@ -49,13 +49,13 @@ describe("parseLink · écrans", () => {
 
   it("s et e valides : Ticket", () => {
     const parsed = parseLink(`${SPEC_EXAMPLE}&e=${S + 2520}`, NOW_MS);
-    expect(parsed.screen).toBe("ticket");
+    expect(screenOf(parsed.meeting)).toBe("ticket");
     expect(parsed.meeting.end).toBe(S + 2520);
   });
 
   it("sans s : Configuration pré-remplie avec le lien", () => {
     const parsed = parseLink(query("v=1", "t=C", "p=12|Ana", "n=Revue"), NOW_MS);
-    expect(parsed.screen).toBe("setup");
+    expect(screenOf(parsed.meeting)).toBe("setup");
     expect(parsed.notices).toEqual([]);
     expect(parsed.meeting).toMatchObject({
       tariff: "C",
@@ -74,9 +74,12 @@ describe("parseLink · v", () => {
     ["texte", query("v=un", ONE, `s=${S}`)],
   ])("v %s : Configuration vierge + « Lien d'une version inconnue »", (_label, search) => {
     const parsed = parseLink(search, NOW_MS);
-    expect(parsed.screen).toBe("setup");
+    expect(screenOf(parsed.meeting)).toBe("setup");
     expect(parsed.meeting).toEqual(defaultMeeting());
     expect(parsed.notices.map((n) => n.code)).toEqual(["unknown-version"]);
+    // Il peut venir d'une version plus récente du site : l'adresse n'est pas réécrite (spec,
+    // « Écrans »).
+    expect(parsed.query).toBeNull();
   });
 });
 
@@ -90,7 +93,7 @@ describe("parseLink · t", () => {
     const parsed = parseLink(query("v=1", `t=${value}`, ONE, `s=${S}`), NOW_MS);
     expect(parsed.meeting.tariff).toBe("A");
     expect(parsed.notices.map((n) => n.code)).toEqual(["bad-tariff"]);
-    expect(parsed.screen).toBe("meter");
+    expect(screenOf(parsed.meeting)).toBe("meter");
   });
 
   it("CL-7 · t=A&t=C : on prend le premier", () => {
@@ -165,7 +168,7 @@ describe("parseLink · p", () => {
     );
     expect(parsed.meeting.participants).toEqual([{ rate: 50, label: "Kevin" }]);
     expect(parsed.notices).toEqual([{ code: "ignored-participants", count: 5 }]);
-    expect(parsed.screen).toBe("meter");
+    expect(screenOf(parsed.meeting)).toBe("meter");
   });
 
   it("CL-11 · deux participants au même libellé : autorisé", () => {
@@ -203,7 +206,7 @@ describe("parseLink · p", () => {
     ["aucun p valide", query("v=1", "t=C", "p=x|y", "p=12|", `s=${S}`)],
   ])("%s : Configuration + message, tarif du lien gardé", (_label, search) => {
     const parsed = parseLink(search, NOW_MS);
-    expect(parsed.screen).toBe("setup");
+    expect(screenOf(parsed.meeting)).toBe("setup");
     expect(parsed.meeting.start).toBeNull();
     expect(parsed.meeting.tariff).toBe("C");
     expect(parsed.meeting.participants).toEqual(defaultMeeting().participants);
@@ -215,18 +218,18 @@ describe("parseLink · s", () => {
   it("CL-1 · s plus de 60 s dans le futur : Configuration + message", () => {
     const now = S * 1000;
     const parsed = parseLink(query("v=1", ONE, `s=${S + 61}`), now);
-    expect(parsed.screen).toBe("setup");
+    expect(screenOf(parsed.meeting)).toBe("setup");
     expect(parsed.meeting.start).toBeNull();
     expect(parsed.meeting.participants).toEqual([{ rate: 50, label: "Kevin" }]);
     expect(parsed.notices.map((n) => n.code)).toEqual(["future-start"]);
   });
 
   it("s = maintenant + 60 s : toléré (horloges décalées)", () => {
-    expect(parseLink(query("v=1", ONE, `s=${S + 60}`), S * 1000).screen).toBe("meter");
+    expect(screenOf(parseLink(query("v=1", ONE, `s=${S + 60}`), S * 1000).meeting)).toBe("meter");
   });
 
   it("s = 2020-01-01 : accepté ; une seconde avant : refusé", () => {
-    expect(parseLink(query("v=1", ONE, "s=1577836800"), NOW_MS).screen).toBe("meter");
+    expect(screenOf(parseLink(query("v=1", ONE, "s=1577836800"), NOW_MS).meeting)).toBe("meter");
     expect(codes(query("v=1", ONE, "s=1577836799"))).toEqual(["bad-start"]);
   });
 
@@ -234,7 +237,7 @@ describe("parseLink · s", () => {
     "s=%s : Configuration + message",
     (value) => {
       const parsed = parseLink(query("v=1", ONE, `s=${value}`), NOW_MS);
-      expect(parsed.screen).toBe("setup");
+      expect(screenOf(parsed.meeting)).toBe("setup");
       expect(parsed.notices.map((n) => n.code)).toEqual(["bad-start"]);
     },
   );
@@ -247,7 +250,7 @@ describe("parseLink · s", () => {
 describe("parseLink · e", () => {
   it("e = s + 24 h : accepté", () => {
     const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${S + 86_400}`), (S + 86_400) * 1000);
-    expect(parsed.screen).toBe("ticket");
+    expect(screenOf(parsed.meeting)).toBe("ticket");
   });
 
   it.each([
@@ -258,7 +261,7 @@ describe("parseLink · e", () => {
     ["e vide", ""],
   ])("%s : e ignoré, retour au Compteur + message", (_label, value) => {
     const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${value}`), NOW_MS);
-    expect(parsed.screen).toBe("meter");
+    expect(screenOf(parsed.meeting)).toBe("meter");
     expect(parsed.meeting.end).toBeNull();
     expect(parsed.notices.map((n) => n.code)).toEqual(["bad-end"]);
   });
@@ -266,7 +269,7 @@ describe("parseLink · e", () => {
   it("CL-3 · e plus de 60 s dans le futur : ignoré, Compteur + message", () => {
     const now = S + 600;
     const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${now + 61}`), now * 1000);
-    expect(parsed.screen).toBe("meter");
+    expect(screenOf(parsed.meeting)).toBe("meter");
     expect(parsed.meeting.end).toBeNull();
     expect(parsed.notices.map((n) => n.code)).toEqual(["future-end"]);
   });
@@ -274,13 +277,21 @@ describe("parseLink · e", () => {
   it("e = maintenant + 60 s : toléré (horloges décalées), Ticket", () => {
     const now = S + 600;
     const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${now + 60}`), now * 1000);
-    expect(parsed.screen).toBe("ticket");
+    expect(screenOf(parsed.meeting)).toBe("ticket");
     expect(parsed.notices).toEqual([]);
   });
 
-  it("e sans s valide : ignoré sans message propre", () => {
-    expect(codes(query("v=1", ONE, `e=${S}`))).toEqual([]);
-    expect(codes(query("v=1", ONE, "s=x", `e=${S}`))).toEqual(["bad-start"]);
+  it("CL-3 · e sans s valide : ignoré, avec message, et retiré de la forme propre", () => {
+    const withoutStart = parseLink(query("v=1", "t=A", ONE, `e=${S}`), NOW_MS);
+    expect(screenOf(withoutStart.meeting)).toBe("setup");
+    expect(withoutStart.notices.map((n) => n.code)).toEqual(["end-without-start"]);
+    expect(withoutStart.query).toBe("?v=1&t=A&p=50|Kevin");
+    expect(codes(query("v=1", ONE, "s=x", `e=${S}`))).toEqual(["bad-start", "end-without-start"]);
+    expect(codes(query("v=1", ONE, `s=${S + 99_999}`, `e=${S}`))).toEqual([
+      "future-start",
+      "end-without-start",
+    ]);
+    expect(codes(query("v=1", ONE, "e="))).toEqual(["end-without-start"]);
   });
 });
 
@@ -318,7 +329,7 @@ describe("parseLink · taille", () => {
   it("CL-8 · query de plus de 4 Ko : Configuration vierge + « Lien trop long »", () => {
     const search = `?v=1&${ONE}&s=${S}&n=${"a".repeat(4096)}`;
     const parsed = parseLink(search, NOW_MS);
-    expect(parsed.screen).toBe("setup");
+    expect(screenOf(parsed.meeting)).toBe("setup");
     expect(parsed.meeting).toEqual(defaultMeeting());
     expect(parsed.notices.map((n) => n.code)).toEqual(["too-long"]);
   });
@@ -326,7 +337,22 @@ describe("parseLink · taille", () => {
   it("CL-8 · 4096 caractères tout juste : lu normalement", () => {
     const head = `v=1&${ONE}&s=${S}&x=`;
     const search = `?${head}${"a".repeat(4096 - head.length)}`;
-    expect(parseLink(search, NOW_MS).screen).toBe("meter");
+    expect(screenOf(parseLink(search, NOW_MS).meeting)).toBe("meter");
+  });
+
+  it("CL-8 · forme propre de plus de 4 Ko (« %FF » devient « %EF%BF%BD ») : refusée comme trop longue", () => {
+    // Un libellé de 39 « %FF » + « a » : 118 octets lus, 352 octets une fois propre.
+    const team = (count: number) =>
+      Array.from({ length: count }, () => `p=1|${"%FF".repeat(39)}a`).join("&");
+    const fits = parseLink(`?v=1&t=A&${team(11)}&s=${S}`, NOW_MS);
+    expect(fits.notices).toEqual([]);
+    expect(fits.query?.length).toBeLessThanOrEqual(4097);
+    const search = `?v=1&t=A&${team(12)}&s=${S}`;
+    expect(search.length).toBeLessThanOrEqual(4096);
+    const parsed = parseLink(search, NOW_MS);
+    expect(parsed.notices.map((n) => n.code)).toEqual(["too-long"]);
+    expect(parsed.meeting).toEqual(defaultMeeting());
+    expect(parsed.query).toBe("");
   });
 
   it("une query de 1 Mo est refusée sans être décodée", () => {
@@ -338,7 +364,6 @@ describe("parseLink · forme propre du lien", () => {
   it("lien ignoré en entier : forme propre vide (aucune query)", () => {
     expect(parseLink("", NOW_MS).query).toBe("");
     expect(parseLink("?utm_source=chat", NOW_MS).query).toBe("");
-    expect(parseLink(query("v=2", ONE, `s=${S}`), NOW_MS).query).toBe("");
     expect(parseLink(`?v=1&${ONE}&n=${"a".repeat(4096)}`, NOW_MS).query).toBe("");
   });
 
@@ -381,10 +406,26 @@ describe("parseLink · forme propre du lien", () => {
     );
   });
 
+  it("forme propre d'un libellé zalgo : marques réduites à 4, stable à la relecture", () => {
+    const zalgo = encodeURIComponent(
+      String.fromCodePoint(
+        0x4b,
+        ...Array.from({ length: 39 }, (_, index) => 0x0350 + (index % 32)),
+      ),
+    );
+    const first = parseLink(query("v=1", "t=A", `p=5|${zalgo}`, `s=${S}`), NOW_MS);
+    expect(first.notices).toEqual([]);
+    expect([...(first.meeting.participants[0]?.label ?? "")]).toHaveLength(5);
+    const second = parseLink(first.query ?? "", NOW_MS);
+    expect(second.query).toBe(first.query);
+    expect(second.meeting).toEqual(first.meeting);
+  });
+
   it("la forme propre se relit à l'identique, sans message", () => {
     const messy = query("t=Z", "v=1", "p=1e3|x", ONE, "p=7|Quelqu'un", `s=${S}`, "n=%20Revue%20");
     const first = parseLink(messy, NOW_MS);
-    const second = parseLink(first.query, NOW_MS);
+    const second = parseLink(first.query ?? "", NOW_MS);
+    expect(first.query).not.toBe("");
     expect(second.query).toBe(first.query);
     expect(second.meeting).toEqual(first.meeting);
     expect(second.notices).toEqual([]);

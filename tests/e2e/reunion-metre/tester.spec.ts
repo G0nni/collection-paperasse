@@ -2061,6 +2061,14 @@ test.describe("reunion-metre · tester · tour 2", () => {
       const cover = await coveredBy(target);
       if (cover !== null) problems.push(`${what} recouvert par ${cover}`);
     };
+    // Adapté au tour 3 (builder) : le repli de copie est désormais « un `<dialog>` modal […]
+    // Échap pour fermer, et le focus rendu au bouton de copie » (specs/reunion-metre.md, lignes
+    // 24-26). Un modal recouvre la page par définition : on vérifie qu'il est lisible au premier
+    // plan, puis qu'Échap le referme avant de juger l'écran Compteur lui-même.
+    await check("champ du lien", page.getByRole("textbox", { name: /lien/iu }));
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("textbox", { name: /lien/iu })).toBeHidden();
+    await expect(copyMeterButton(page)).toBeFocused();
     await check("montant", timer(page));
     await check("Terminer", finishButton(page));
     for (const [index, item] of (
@@ -2074,7 +2082,6 @@ test.describe("reunion-metre · tester · tour 2", () => {
       await check(`€/heure ${index + 1}`, rateFields(page).nth(index));
       await check(`Retirer ${index + 1}`, removeButtons(page).nth(index));
     }
-    await check("champ du lien", page.getByRole("textbox", { name: /lien/iu }));
     expect(problems).toEqual([]);
     expect(await scrollingParts(page)).toEqual([]);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);

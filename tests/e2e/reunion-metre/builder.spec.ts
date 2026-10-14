@@ -317,14 +317,15 @@ test.describe("reunion-metre · copie du lien", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await openAt(page, link("v=1", ...SOLO, `s=${S}`, `e=${S + 2520}`), S + 3000);
     await page.getByRole("button", { name: "Copier le lien du ticket" }).click();
-    const status = page.getByText("Lien copié. Collez-le dans le chat de la réunion.");
+    const status = page.getByText("Lien copié.");
     await expect(status).toBeVisible();
     await expect(status).toHaveAttribute("aria-live", "polite");
+    await expect(page.getByRole("dialog")).toBeHidden();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(page.url());
     expect(page.url()).toContain(`e=${S + 2520}`);
   });
 
-  test("CA-7 · presse-papiers refusé : le lien s'affiche dans un champ sélectionné", async ({
+  test("CA-7 · presse-papiers refusé : le lien s'affiche dans un champ sélectionné d'un <dialog> modal", async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -345,12 +346,93 @@ test.describe("reunion-metre · copie du lien", () => {
         : [],
     );
     expect(selection).toEqual([0, page.url().length, page.url().length]);
-    await expect(page.getByText(/Le navigateur refuse la copie/u)).toHaveAttribute(
-      "aria-live",
-      "polite",
-    );
+    // Spec, « Écrans » : un <dialog> modal, titré, qui explique le refus.
+    const dialog = page.getByRole("dialog", { name: "Copiez le lien à la main" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Le navigateur refuse la copie");
+    expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+    await expect(page.locator("#copy-status")).toBeEmpty();
     await expectNoAxeViolation(page);
   });
+
+  for (const how of ["Fermer", "Échap"] as const) {
+    test(`CA-7 · repli de copie : ${how} referme le dialogue et rend le focus au bouton de copie`, async ({
+      page,
+    }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+      });
+      await openAt(page, link("v=1", ...SOLO, `s=${S}`), S + 3000);
+      const copy = page.getByRole("button", { name: "Copier le lien du compteur" });
+      await copy.click();
+      const dialog = page.getByRole("dialog", { name: "Copiez le lien à la main" });
+      await expect(dialog).toBeVisible();
+      if (how === "Fermer") await dialog.getByRole("button", { name: "Fermer" }).click();
+      else await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(copy).toBeFocused();
+      // Le compteur n'a pas bougé d'écran et se rouvre encore.
+      await expect(page.getByRole("button", { name: "Terminer" })).toBeVisible();
+      await copy.click();
+      await expect(dialog).toBeVisible();
+      await expect(page.getByLabel("Lien à copier")).toBeFocused();
+    });
+  }
+
+  // 1093×614 : un 1366×768 à 125 % ; 960×600 : le plus petit Compteur sans défilement.
+  for (const [width, height] of [
+    [1280, 720],
+    [1093, 614],
+    [960, 600],
+    [360, 780],
+  ] as const) {
+    test(`CA-7 · ${width}×${height} : « Lien copié » à côté du bouton, jamais par-dessus le ticket`, async ({
+      page,
+      context,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "viewport fixé par le test");
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.setViewportSize({ width, height });
+      for (const [url, name] of [
+        [link("v=1", ...SOLO, `s=${S}`, "n=Point hebdo"), "Copier le lien du compteur"],
+        [link("v=1", ...SOLO, `s=${S}`, `e=${S + 2520}`), "Copier le lien du ticket"],
+      ] as const) {
+        await openAt(page, url, S + 3000);
+        await page.evaluate(() => document.fonts.ready);
+        const button = page.getByRole("button", { name });
+        await button.click();
+        const status = page.locator("#copy-status");
+        await expect(status).toHaveText("Lien copié.");
+        const boxes = await page.evaluate(() => {
+          const rect = (selector: string) => {
+            const box = document.querySelector(selector)?.getBoundingClientRect();
+            return box === undefined
+              ? null
+              : { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+          };
+          return {
+            status: rect("#copy-status"),
+            receipt: rect("#receipt"),
+            actions: rect(".actions"),
+          };
+        });
+        const { status: box, receipt, actions } = boxes;
+        if (box === null || receipt === null || actions === null) throw new Error("boîtes");
+        const overlaps =
+          box.left < receipt.right &&
+          box.right > receipt.left &&
+          box.top < receipt.bottom &&
+          box.bottom > receipt.top;
+        expect(overlaps, "le statut ne recouvre pas le ticket").toBe(false);
+        // Dans la rangée des boutons de l'en-tête, avec le bouton de copie.
+        expect(box.top).toBeGreaterThanOrEqual(actions.top - 1);
+        expect(box.bottom).toBeLessThanOrEqual(actions.bottom + 1);
+        expect(await status.evaluate((element) => getComputedStyle(element).position)).toBe(
+          "static",
+        );
+      }
+    });
+  }
 });
 
 test.describe("reunion-metre · accessibilité du compteur", () => {
@@ -777,6 +859,9 @@ test.describe("reunion-metre · tour 2", () => {
     await expect(page.getByRole("status").getByRole("listitem")).toHaveCount(6);
     await page.getByRole("button", { name: "Copier le lien du compteur" }).click();
     await expect(page.getByLabel("Lien à copier")).toBeVisible();
+    // Le repli est un modal (spec, « Écrans ») : refermé, l'écran est intact.
+    await page.keyboard.press("Escape");
+    await expect(page.getByLabel("Lien à copier")).toBeHidden();
     await expectEightFit(page);
   });
 
@@ -819,14 +904,17 @@ test.describe("reunion-metre · tour 2", () => {
     await page.reload();
     expect(await page.evaluate(() => history.length)).toBe(length);
     await page.getByRole("button", { name: "Copier le lien du compteur" }).click();
-    await expect(page.getByText("Lien copié. Collez-le dans le chat de la réunion.")).toBeVisible();
+    await expect(page.getByText("Lien copié.")).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(page.url());
   });
 
-  test("URL réécrite : un lien ignoré en entier redevient l'adresse nue", async ({ page }) => {
-    await openAt(page, link("v=2", p(10, "Ana"), `s=${S}`), S + 60);
-    await expect(notices(page).first()).toContainText("Lien d'une version inconnue");
+  test("URL réécrite : un lien sans aucun paramètre du format redevient l'adresse nue", async ({
+    page,
+  }) => {
+    await openAt(page, `${link("utm_source=chat", "fbclid=x")}#truc`, S + 60);
+    await expect(page.getByRole("heading", { name: "Préparer la réunion" })).toBeVisible();
     expect(new URL(page.url()).search).toBe("");
+    expect(new URL(page.url()).hash).toBe("");
   });
 
   test("Nouvelle réunion : Précédent rend le ticket, puis l'URL suit la Configuration sans nouvelle entrée", async ({
@@ -983,4 +1071,187 @@ test.describe("reunion-metre · tour 2", () => {
     await expect(digits(page)).toHaveText(`5${NBSP}500,00`);
     await expect(page.locator("#hourly")).toHaveText(`1${NBSP}000${NBSP}€`);
   });
+});
+
+test.describe("reunion-metre · tour 3", () => {
+  for (const v of ["2", "", "abc"] as const) {
+    test(`lien de version inconnue (v=${v}) : message, et l'adresse n'est pas réécrite`, async ({
+      page,
+    }) => {
+      const url = link(`v=${v}`, p(10, "Ana"), `s=${S}`, "x=futur");
+      await openAt(page, url, S + 60);
+      await expect(notices(page).first()).toContainText("Lien d'une version inconnue");
+      await expect(page.getByRole("heading", { name: "Préparer la réunion" })).toBeVisible();
+      expect(new URL(page.url()).search).toBe(`?v=${v}&p=10|Ana&s=${S}&x=futur`);
+    });
+  }
+
+  test("CL-8 · forme propre de plus de 4 Ko (« %FF » grossit) : Configuration vierge + « Lien trop long »", async ({
+    page,
+  }) => {
+    const label = `${"%FF".repeat(39)}a`;
+    const team = Array.from({ length: 12 }, () => `p=1|${label}`);
+    const url = link("v=1", "t=A", ...team, `s=${S}`);
+    expect(url.length - BASE.length - 1).toBeLessThanOrEqual(4096);
+    await openAt(page, url, S + 60);
+    await expect(notices(page).first()).toContainText("Lien trop long");
+    await expect(page.getByRole("heading", { name: "Préparer la réunion" })).toBeVisible();
+    await expect(page.getByLabel("Qui", { exact: true })).toHaveCount(5);
+    expect(new URL(page.url()).search).toBe("");
+  });
+
+  test("CL-3 · e sans s valide : ignoré avec message, et retiré du lien", async ({ page }) => {
+    await openAt(page, link("v=1", ...SOLO, `e=${S}`), S + 60);
+    await expect(page.getByRole("heading", { name: "Préparer la réunion" })).toBeVisible();
+    await expect(notices(page).first()).toContainText(
+      `Heure de fin sans heure de début${NBSP}: elle est ignorée.`,
+    );
+    expect((await query(page)).has("e")).toBe(false);
+  });
+
+  test("notices : affichées jusqu'au changement d'écran, pas réaffichées au rechargement", async ({
+    page,
+  }) => {
+    await openAt(page, link("v=1", "t=Z", ...SOLO, `s=${S}`), S + 60);
+    await expect(notices(page).first()).toContainText("Tarif inconnu");
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Terminer" })).toBeVisible();
+    await expect(notices(page).first()).toBeEmpty();
+    await openAt(page, link("v=1", "t=Z", ...SOLO, `s=${S}`), S + 60);
+    await page.getByRole("button", { name: "Terminer" }).click();
+    await expect(notices(page).first()).toBeEmpty();
+  });
+
+  /** « K » suivi de 39 marques combinantes (U+0350 à U+036F, en boucle). */
+  const ZALGO = String.fromCodePoint(
+    0x4b,
+    ...Array.from({ length: 39 }, (_, index) => 0x0350 + (index % 32)),
+  );
+
+  test("modèle de menace · libellé zalgo : 4 marques au plus, coupé dans sa ligne, ne recouvre pas son montant", async ({
+    page,
+  }) => {
+    const wide = String.fromCodePoint(0x57, 0x0489, 0x0489, 0x0489, 0x0489).repeat(8);
+    await openAt(
+      page,
+      link("v=1", "t=A", p(354, ZALGO), p(60, wide), `s=${S}`, `e=${S + 2520}`),
+      S + 3000,
+    );
+    await page.evaluate(() => document.fonts.ready);
+    const lines = receipt(page).locator("#receipt-people .receipt-line");
+    await expect(lines).toHaveCount(2);
+    const shown = await lines.locator("dt").first().textContent();
+    expect([...(shown ?? "")]).toHaveLength(5);
+    expect(new URL(page.url()).searchParams.getAll("p")[0]).toBe(`354|${shown ?? ""}`);
+    for (const line of await lines.all()) {
+      const state = await line.evaluate((element) => {
+        const term = element.querySelector("dt");
+        const amount = element.querySelector("dd");
+        if (term === null || amount === null) throw new Error("ligne");
+        const style = getComputedStyle(term);
+        const a = term.getBoundingClientRect();
+        const b = amount.getBoundingClientRect();
+        return {
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+          wrap: style.overflowWrap,
+          // La boîte du libellé (où il est coupé) s'arrête avant celle du montant.
+          gap: b.left - a.right,
+        };
+      });
+      expect(state.overflowX).toBe("clip");
+      expect(state.overflowY).toBe("clip");
+      expect(state.wrap).toBe("anywhere");
+      expect(state.gap).toBeGreaterThan(4);
+    }
+    // Le montant reste au premier plan : aucun autre élément au centre de sa boîte.
+    const amountOnTop = await lines
+      .first()
+      .locator("dd")
+      .evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return top !== null && element.contains(top);
+      });
+    expect(amountOnTop).toBe(true);
+  });
+
+  test("modèle de menace · titre zalgo et libellés sans espace à 360 px : la page ne défile pas en largeur", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile-360", "largeur 360 px");
+    const title = String.fromCodePoint(0x57, 0x0489, 0x0489, 0x0489, 0x0489, 0x0489).repeat(12);
+    for (const end of [null, S + 2520]) {
+      await openAt(
+        page,
+        link(
+          "v=1",
+          p(10, ZALGO),
+          p(10, "W".repeat(40)),
+          `s=${S}`,
+          ...(end === null ? [] : [`e=${end}`]),
+          `n=${encodeURIComponent(title)}`,
+        ),
+        S + 3000,
+      );
+      await page.evaluate(() => document.fonts.ready);
+      const state = await page.evaluate(() => {
+        const subtitle = document.getElementById("subtitle");
+        const receiptTitle = document.getElementById("receipt-title");
+        return {
+          overflow: document.documentElement.scrollWidth - window.innerWidth,
+          subtitle: subtitle === null ? "" : getComputedStyle(subtitle).overflowX,
+          receiptTitle: receiptTitle === null ? "" : getComputedStyle(receiptTitle).overflowX,
+        };
+      });
+      expect(state.overflow).toBeLessThanOrEqual(0);
+      expect(state.subtitle).toBe("clip");
+      expect(state.receiptTitle).toBe("clip");
+    }
+  });
+
+  for (const [width, height] of [
+    [1280, 720],
+    [1093, 614],
+    [960, 600],
+  ] as const) {
+    test(`Compteur ${width}×${height} : le ticket en cours tient dans sa colonne, sans défiler`, async ({
+      page,
+    }) => {
+      test.skip(test.info().project.name !== "desktop", "viewport fixé par le test");
+      await page.setViewportSize({ width, height });
+      // Titres de 60 caractères : l'en-tête passe sur deux rangées, le titre du ticket aussi.
+      for (const [team, title] of [
+        [
+          [p(68, "Cheffe de projet")],
+          "Point hebdo de l'équipe produit, marketing et support client",
+        ],
+        [
+          Array.from({ length: 8 }, (_, index) => p(40 + index, `Participant ${index + 1}`)),
+          "Point hebdo de l'équipe produit, marketing et support client",
+        ],
+        [[p(68, "Cheffe de projet")], "😀".repeat(60)],
+      ] as const) {
+        await openAt(
+          page,
+          link("v=1", "t=B", ...team, `s=${S}`, `n=${encodeURIComponent(title)}`),
+          S + 2520,
+        );
+        await page.evaluate(() => document.fonts.ready);
+        const state = await page.evaluate(() => {
+          const receipt = document.getElementById("receipt");
+          if (receipt === null) throw new Error("ticket");
+          return {
+            overflow: receipt.scrollHeight - receipt.clientHeight,
+            bottom: receipt.getBoundingClientRect().bottom,
+          };
+        });
+        expect(state.overflow, "le ticket ne défile pas").toBeLessThanOrEqual(0);
+        expect(state.bottom).toBeLessThanOrEqual(height);
+        // Le titre, coupé sur une ligne dans l'en-tête, reste entier en tête du ticket.
+        await expect(page.locator("#receipt-title")).toHaveText(title);
+        await expect(page.locator("#subtitle")).toHaveText(title);
+      }
+    });
+  }
 });

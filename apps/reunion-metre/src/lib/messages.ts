@@ -51,8 +51,9 @@ export const TEXT = {
 
   copyTicket: "Copier le lien du ticket",
   newMeeting: "Nouvelle réunion",
-  copied: "Lien copié. Collez-le dans le chat de la réunion.",
-  copyRefused: `Le navigateur refuse la copie${NBSP}: le lien est sélectionné ci-dessous, copiez-le à la main.`,
+  copied: "Lien copié.",
+  copyDialogTitle: "Copiez le lien à la main",
+  copyRefused: `Le navigateur refuse la copie${NBSP}: le lien est sélectionné ci-dessous. Copiez-le (Ctrl+C, ou appui long sur mobile), puis collez-le dans le chat de la réunion.`,
   linkField: "Lien à copier",
   dismiss: "Fermer",
   dismissContext: "les messages du lien",
@@ -100,6 +101,8 @@ export function noticeText(notice: Notice): string {
       return `Heure de fin illisible${NBSP}: la réunion continue.`;
     case "future-end":
       return `Heure de fin dans le futur${NBSP}: la réunion continue.`;
+    case "end-without-start":
+      return `Heure de fin sans heure de début${NBSP}: elle est ignorée.`;
     case "bad-tariff":
       return `Tarif inconnu${NBSP}: tarif A appliqué.`;
     case "bad-title":

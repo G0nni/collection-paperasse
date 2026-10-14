@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { formatEuros, ghostDigits, ledAmount } from "./format";
 import { buildQuery, parseLink } from "./link";
-import { LIMITS, TARIFFS, TARIFF_CODES, type Meeting } from "./meeting";
+import { LIMITS, TARIFFS, TARIFF_CODES, screenOf, type Meeting } from "./meeting";
 import { costCents, elapsed, receiptLines, splitCost } from "./meter";
 
 const NOW_MS = Date.UTC(2026, 9, 14, 8, 0, 0);
@@ -170,7 +170,7 @@ describe("Lien · tester", () => {
       );
       const search = `?${parts.join(next() < 0.5 ? "&" : "")}`;
       const parsed = parseLink(search, NOW_MS);
-      expect(["setup", "meter", "ticket"]).toContain(parsed.screen);
+      expect(["setup", "meter", "ticket"]).toContain(screenOf(parsed.meeting));
       expect(parsed.meeting.participants.length).toBeGreaterThan(0);
       expect(parsed.meeting.participants.length).toBeLessThanOrEqual(LIMITS.maxParticipants);
     }
@@ -226,6 +226,6 @@ describe("Lien · tester", () => {
     const rlo = encodeURIComponent(String.fromCodePoint(0x202e)).repeat(20);
     const parsed = parseLink(`?v=1&p=5|${"K".repeat(40)}${rlo}&s=${NOW - 60}`, NOW_MS);
     expect(parsed.meeting.participants[0]?.label).toBe("K".repeat(40));
-    expect(parsed.screen).toBe("meter");
+    expect(screenOf(parsed.meeting)).toBe("meter");
   });
 });

@@ -87,9 +87,15 @@ describe("canRemove", () => {
 });
 
 describe("rowsFrom", () => {
-  it("convertit les participants en lignes numérotées", () => {
-    expect(rowsFrom([{ rate: 6, label: "Stagiaire" }], 4)).toEqual([
-      { id: 4, label: "Stagiaire", rate: "6" },
+  it("convertit les participants en lignes numérotées à partir de 1", () => {
+    expect(
+      rowsFrom([
+        { rate: 6, label: "Stagiaire" },
+        { rate: 55, label: "Patrick" },
+      ]),
+    ).toEqual([
+      { id: 1, label: "Stagiaire", rate: "6" },
+      { id: 2, label: "Patrick", rate: "55" },
     ]);
   });
 });

@@ -9,16 +9,14 @@ import {
   LINK_DEFAULT_TARIFF,
   TARIFF_CODES,
   defaultMeeting,
-  screenOf,
   type Meeting,
   type Participant,
-  type Screen,
 } from "./meeting";
 
 export type NoticeCode =
   /** `v` absent ou différent de 1 alors que le lien porte des paramètres. */
   | "unknown-version"
-  /** Query de plus de 4 Ko (CL-8). */
+  /** Query brute, ou sa forme propre, de plus de 4 Ko (CL-8). */
   | "too-long"
   /** `s` plus de 60 s dans le futur (CL-1). */
   | "future-start"
@@ -28,6 +26,8 @@ export type NoticeCode =
   | "bad-end"
   /** `e` plus de 60 s dans le futur (CL-3) : un ticket ne se termine pas à l'avance. */
   | "future-end"
+  /** `e` sans `s` valide (CL-3) : une fin sans début n'existe pas. */
+  | "end-without-start"
   /** `t` hors liste blanche : tarif A. */
   | "bad-tariff"
   /** `n` trop long après nettoyage. */
@@ -43,14 +43,14 @@ export type Notice = { readonly code: NoticeCode; readonly count: number };
 
 export type ParsedLink = {
   readonly meeting: Meeting;
-  readonly screen: Screen;
   readonly notices: readonly Notice[];
   /**
    * Forme propre du lien, à remettre dans la barre d'adresse (spec, « Écrans ») : paramètres
    * inconnus, doublons et participants invalides retirés. Chaîne vide quand le lien est ignoré
-   * en entier (aucun paramètre du format, version inconnue, trop long).
+   * en entier (aucun paramètre du format, trop long). `null` pour un lien d'une version
+   * inconnue : il peut venir d'une version plus récente du site, l'adresse n'est pas réécrite.
    */
-  readonly query: string;
+  readonly query: string | null;
 };
 
 /** Paramètres du format. Un lien qui n'en porte aucun est une Configuration vierge (CA-1). */
@@ -136,19 +136,31 @@ function readEnd(
  */
 export function parseLink(search: string, nowMs: number): ParsedLink {
   const raw = rawQuery(search);
-  const blank = { meeting: defaultMeeting(), screen: "setup" as const, query: "" };
+  const tooLong: ParsedLink = {
+    meeting: defaultMeeting(),
+    notices: [notice("too-long")],
+    query: "",
+  };
   // Borné sur la query brute, avant tout décodage (CL-8, CLAUDE.md).
-  if (isPayloadTooLong(raw)) {
-    return { ...blank, notices: [notice("too-long")] };
-  }
+  if (isPayloadTooLong(raw)) return tooLong;
   const params = new URLSearchParams(raw);
   if (!KNOWN_PARAMS.some((name) => params.has(name))) {
-    return { ...blank, notices: [] };
+    return { meeting: defaultMeeting(), notices: [], query: "" };
   }
   if (parseStrictInt(firstParam(params, "v"), 1, 1) === null) {
-    return { ...blank, notices: [notice("unknown-version")] };
+    return { meeting: defaultMeeting(), notices: [notice("unknown-version")], query: null };
   }
+  const parsed = readMeeting(params, nowMs);
+  // La forme propre peut être plus longue que la query lue (« %FF » devient « %EF%BF%BD ») :
+  // au-delà de 4 Ko, elle serait refusée à l'ouverture suivante. On la refuse tout de suite.
+  return isPayloadTooLong(rawQuery(parsed.query)) ? tooLong : parsed;
+}
 
+/** Lit les paramètres d'un lien de version 1 déjà borné en taille. */
+function readMeeting(
+  params: URLSearchParams,
+  nowMs: number,
+): { meeting: Meeting; notices: Notice[]; query: string } {
   const notices: Notice[] = [];
   const rawTariff = firstParam(params, "t");
   const tariff = parseEnum(rawTariff, TARIFF_CODES);
@@ -170,7 +182,7 @@ export function parseLink(search: string, nowMs: number): ParsedLink {
       start: null,
       end: null,
     };
-    return { meeting, screen: "setup", notices, query: buildQuery(meeting) };
+    return { meeting, notices, query: buildQuery(meeting) };
   }
   if (ignored > 0) notices.push(notice("ignored-participants", ignored));
 
@@ -178,6 +190,8 @@ export function parseLink(search: string, nowMs: number): ParsedLink {
   const start = readStart(firstParam(params, "s"), nowSeconds);
   if (typeof start === "string") notices.push(notice(start));
   const validStart = typeof start === "number" ? start : null;
+  const rawEnd = firstParam(params, "e");
+  if (validStart === null && rawEnd !== null) notices.push(notice("end-without-start"));
 
   const meeting: Meeting =
     validStart === null
@@ -186,9 +200,9 @@ export function parseLink(search: string, nowMs: number): ParsedLink {
           ...base,
           participants,
           start: validStart,
-          end: readEnd(firstParam(params, "e"), validStart, nowSeconds, notices),
+          end: readEnd(rawEnd, validStart, nowSeconds, notices),
         };
-  return { meeting, screen: screenOf(meeting), notices, query: buildQuery(meeting) };
+  return { meeting, notices, query: buildQuery(meeting) };
 }
 
 /**

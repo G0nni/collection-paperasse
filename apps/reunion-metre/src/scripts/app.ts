@@ -10,6 +10,7 @@ import {
   suggestedRate,
   type DraftRow,
   type Proposal,
+  type ProposalError,
   type RowCheck,
 } from "../lib/drafts";
 import {
@@ -44,7 +45,7 @@ import {
 import { everySecond, summaryDue } from "../lib/ticker";
 import { parseEnum } from "@paperasse/shared/url";
 import { byId, fillList, setText, slot } from "./dom";
-import { clearCopyFeedback, copyLink, type CopyView } from "./copy";
+import { createCopier } from "./copy";
 
 // ---------------------------------------------------------------------------------------------
 // Éléments
@@ -86,11 +87,11 @@ const view = {
   template: byId("person-template", HTMLTemplateElement),
 };
 
-const copyView: CopyView = {
+const copier = createCopier({
   status: byId("copy-status", HTMLElement),
-  fallback: byId("copy-fallback", HTMLElement),
+  dialog: byId("copy-dialog", HTMLDialogElement),
   field: byId("copy-field", HTMLInputElement),
-};
+});
 
 const tariffInputs = [...view.form.querySelectorAll('input[name="tariff"]')].filter(
   (input) => input instanceof HTMLInputElement,
@@ -105,6 +106,8 @@ let meeting: Meeting;
 /** Lignes du formulaire, telles que tapées (seules les valides entrent dans `meeting`). */
 let rows: DraftRow[] = [];
 let nextRowId = 1;
+/** Titre tel que tapé en Configuration (validé au lancement, comme les lignes). */
+let titleDraft = "";
 /** Messages issus de la lecture du lien, affichés jusqu'au changement d'écran ou « Fermer ». */
 let linkNotices: readonly Notice[] = [];
 let stopTicker: (() => void) | null = null;
@@ -134,10 +137,27 @@ function loadFromLocation(): void {
   const parsed = parseLink(location.search, now());
   meeting = parsed.meeting;
   linkNotices = parsed.notices;
-  // Forme propre du lien (spec, « Écrans ») : c'est elle que « Copier le lien » copiera.
-  history.replaceState(null, "", urlFor(parsed.query));
+  // Forme propre du lien (spec, « Écrans ») : c'est elle que « Copier le lien » copiera. Un lien
+  // d'une version inconnue (`query` nulle) reste tel quel : il ne doit pas être perdu.
+  if (parsed.query !== null) history.replaceState(null, "", urlFor(parsed.query));
   resetRows();
   render();
+}
+
+/**
+ * Changement d'écran voulu par l'utilisateur (Lancer, Terminer, Nouvelle réunion) : l'URL suit,
+ * les messages du lien s'effacent (spec, « Écrans »), tout est redessiné, puis le focus va à
+ * l'action suivante. `push` crée une entrée d'historique (« Précédent » rend l'écran quitté).
+ */
+function goTo(next: Meeting, options: { push: boolean; focus: HTMLElement }): void {
+  meeting = next;
+  const url = urlFor(buildQuery(next));
+  if (options.push) history.pushState(null, "", url);
+  else history.replaceState(null, "", url);
+  linkNotices = [];
+  resetRows();
+  render();
+  options.focus.focus();
 }
 
 /**
@@ -151,21 +171,25 @@ function updateMeeting(next: Meeting): void {
   tick();
 }
 
-/** Met la réunion proposée par le formulaire, ou dit pourquoi elle ne passe pas. */
-function applyProposal(proposal: Proposal): boolean {
-  if (!proposal.ok) {
-    setText(view.formError, proposalErrorText(proposal.error));
-    return false;
-  }
-  setText(view.formError, "");
-  updateMeeting(proposal.meeting);
-  return true;
+/** Dit pourquoi une modification n'entre pas dans le lien, ou efface le message (`null`). */
+function showProposalError(error: ProposalError | null): void {
+  setText(view.formError, error === null ? "" : proposalErrorText(error));
 }
 
-/** Relit le formulaire (titre en Configuration, lignes) et l'applique si possible. */
+/** Met la réunion proposée par le formulaire, ou dit pourquoi elle ne passe pas. */
+function applyProposal(proposal: Proposal): void {
+  if (!proposal.ok) {
+    showProposalError(proposal.error);
+    return;
+  }
+  showProposalError(null);
+  updateMeeting(proposal.meeting);
+}
+
+/** Relit le brouillon (titre en Configuration, lignes) et l'applique si possible. */
 function applyForm(): void {
   const title =
-    screenOf(meeting) === "setup" ? (parseTitle(view.title.value) ?? meeting.title) : meeting.title;
+    screenOf(meeting) === "setup" ? (parseTitle(titleDraft) ?? meeting.title) : meeting.title;
   applyProposal(proposeMeeting({ ...meeting, title }, rows));
 }
 
@@ -180,9 +204,10 @@ function render(): void {
   showFor(screen);
   view.subtitle.textContent = meeting.title === "" ? TEXT.tagline : meeting.title;
   renderNotices();
-  clearCopyFeedback(copyView);
-  setText(view.formError, "");
+  copier.clear();
+  showProposalError(null);
   showTitleError(false);
+  titleDraft = meeting.title;
   view.title.value = meeting.title;
   for (const input of tariffInputs) input.checked = input.value === meeting.tariff;
   renderRows();
@@ -326,8 +351,7 @@ function buildRow(row: DraftRow, position: number): HTMLLIElement {
 }
 
 /** Erreurs, boutons Retirer/Ajouter : tout ce qui dépend de la validité des lignes. */
-function refreshRows(): RowCheck[] {
-  const checks = rows.map(checkRow);
+function refreshRows(checks: readonly RowCheck[] = rows.map(checkRow)): void {
   const items = [...view.people.children];
   checks.forEach((check, index) => {
     const item = items[index];
@@ -343,7 +367,6 @@ function refreshRows(): RowCheck[] {
   const full = rows.length >= LIMITS.maxParticipants;
   view.addPerson.disabled = full;
   view.peopleFull.hidden = !full;
-  return checks;
 }
 
 function setInvalid(input: HTMLInputElement, invalid: boolean): void {
@@ -404,7 +427,7 @@ view.addPerson.addEventListener("click", () => {
   // La ligne n'est ajoutée que si le lien qui en résulte reste valide (CL-8).
   const proposal = proposeMeeting(meeting, candidate);
   if (!proposal.ok) {
-    setText(view.formError, proposalErrorText(proposal.error));
+    showProposalError(proposal.error);
     return;
   }
   nextRowId += 1;
@@ -427,7 +450,8 @@ function showTitleError(invalid: boolean): void {
 // Pas de maxlength (il compte en UTF-16) : la longueur est vérifiée en points de code, à la
 // frappe, avec les mêmes règles que `n` dans le lien.
 view.title.addEventListener("input", () => {
-  showTitleError(parseTitle(view.title.value) === null);
+  titleDraft = view.title.value;
+  showTitleError(parseTitle(titleDraft) === null);
   applyForm();
 });
 
@@ -445,54 +469,45 @@ view.form.addEventListener("submit", (event) => {
 });
 
 function launch(): void {
-  const title = parseTitle(view.title.value);
+  // Tout est vérifié sur le brouillon avant d'afficher quoi que ce soit.
+  const title = parseTitle(titleDraft);
+  const checks = rows.map(checkRow);
+  const invalidIndex = checks.findIndex((check) => check.participant === null);
+  // CA-2 : s = maintenant. Ne sert que si le titre et toutes les lignes sont valides.
+  const start = Math.floor(now() / 1000);
+  const proposal = proposeMeeting({ ...meeting, title: title ?? "", start, end: null }, rows);
+
   showTitleError(title === null);
+  refreshRows(checks);
   if (title === null) {
     view.title.focus();
     return;
   }
-  const checks = refreshRows();
-  const invalid = checks.findIndex((check) => check.participant === null);
-  const invalidItem = view.people.children[invalid];
+  const invalidItem = view.people.children[invalidIndex];
   if (invalidItem !== undefined) {
     setText(view.formError, TEXT.fixRows);
-    slot(invalidItem, checks[invalid]?.labelError ? "who" : "rate", HTMLInputElement).focus();
+    slot(invalidItem, checks[invalidIndex]?.labelError ? "who" : "rate", HTMLInputElement).focus();
     return;
   }
-  const start = Math.floor(now() / 1000);
-  const proposal = proposeMeeting({ ...meeting, title, start, end: null }, rows);
   if (!proposal.ok) {
-    setText(view.formError, proposalErrorText(proposal.error));
+    showProposalError(proposal.error);
     return;
   }
-  // CA-2 : s = maintenant, via history.replaceState.
-  meeting = proposal.meeting;
-  replaceUrl(meeting);
-  linkNotices = [];
-  render();
-  view.finish.focus();
+  // CA-2 : via history.replaceState.
+  goTo(proposal.meeting, { push: false, focus: view.finish });
 }
 
 view.finish.addEventListener("click", () => {
   const start = meeting.start;
   if (start === null) return;
   // CA-6 : e = maintenant, borné à [s + 1, s + 24 h] pour rester un lien valide.
-  meeting = { ...meeting, start, end: endFor(start, now()) };
-  replaceUrl(meeting);
-  linkNotices = [];
-  render();
-  view.copyTicket.focus();
+  goTo({ ...meeting, start, end: endFor(start, now()) }, { push: false, focus: view.copyTicket });
 });
 
 view.newMeeting.addEventListener("click", () => {
   // Même équipe, même tarif, même titre. Nouvelle entrée d'historique : « Précédent » rend le
   // ticket ; ensuite, chaque modification de la Configuration réécrit cette entrée.
-  meeting = { ...meeting, start: null, end: null };
-  history.pushState(null, "", urlFor(buildQuery(meeting)));
-  linkNotices = [];
-  resetRows();
-  render();
-  view.setupHeading.focus();
+  goTo({ ...meeting, start: null, end: null }, { push: true, focus: view.setupHeading });
 });
 
 view.dismissNotices.addEventListener("click", () => {
@@ -513,7 +528,8 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // CA-7
-view.copyMeter.addEventListener("click", () => void copyLink(copyView, location.href));
-view.copyTicket.addEventListener("click", () => void copyLink(copyView, location.href));
+for (const button of [view.copyMeter, view.copyTicket]) {
+  button.addEventListener("click", () => void copier.copy(location.href, button));
+}
 
 loadFromLocation();

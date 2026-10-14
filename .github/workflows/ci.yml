@@ -26,7 +26,16 @@ jobs:
       - run: pnpm check
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build:e2e
+      - name: pnpm build:e2e
+        shell: bash
+        # En cas d'échec, remonte la fin du journal en annotation (lisible sans télécharger les logs).
+        run: |
+          set -o pipefail
+          if ! pnpm build:e2e 2>&1 | tee build.log; then
+            msg=$(tail -n 60 build.log | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=pnpm build:e2e::$msg"
+            exit 1
+          fi
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v7
         if: failure()

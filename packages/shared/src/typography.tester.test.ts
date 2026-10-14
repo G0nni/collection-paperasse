@@ -71,8 +71,12 @@ describe("oracle strict · guillemets sans insécable", () => {
     expect(kinds(`${OPEN}${cp(0x2060)}Oui${NBSP}${CLOSE}`)).toEqual(["missing-nbsp"]);
   });
 
-  it("accepte U+00A0 et U+202F, y compris mélangées", () => {
-    expect(findTypographyIssues(`${OPEN}${NBSP}Oui${NARROW_NBSP}${CLOSE}`)).toEqual([]);
+  // Modifié par le builder (tour 3) : ce test acceptait U+202F, ce que contredit désormais
+  // specs/lookbook.md, ligne 65 : « Insécable : U+00A0 partout (pas d'espace fine U+202F), pour
+  // un seul cas à tester. »
+  it("accepte U+00A0 et refuse U+202F, y compris mélangées", () => {
+    expect(findTypographyIssues(`${OPEN}${NBSP}Oui${NBSP}${CLOSE}`)).toEqual([]);
+    expect(kinds(`${OPEN}${NBSP}Oui${NARROW_NBSP}${CLOSE}`)).toEqual(["narrow-nbsp"]);
   });
 
   // Une espace sécable collée à l'insécable : la ligne peut se couper sur l'espace sécable et

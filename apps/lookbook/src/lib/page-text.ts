@@ -1,5 +1,4 @@
-/** Espace insécable, à mettre avant « : ; ! ? » et à l'intérieur des guillemets. */
-const NBSP = String.fromCodePoint(0xa0);
+import { NBSP } from "@paperasse/shared/typography";
 
 /**
  * Textes fixes de la page (affiche et post-its). Regroupés ici pour que les tests vérifient

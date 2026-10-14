@@ -30,7 +30,7 @@ on corrige le code, ou on modifie la spec explicitement dans le même commit, en
 
 ## Stack
 
-- pnpm workspaces, Node ≥ 22.12, TypeScript 6 en mode `strict` (TS 7 n'est pas encore supporté
+- pnpm workspaces, Node ≥ 22.18 (scripts .mjs qui importent du TypeScript), TypeScript 6 en mode `strict` (TS 7 n'est pas encore supporté
   par `@astrojs/check`).
 - Astro 7, sortie **100 % statique** (`output: 'static'`). Aucun adaptateur serveur.
 - **Pas de framework UI.** L'interactivité se fait en TypeScript vanilla dans des `<script>`

@@ -13,16 +13,16 @@ export const ORIGIN_ENV = "PAPERASSE_ORIGIN";
 
 /** Directive CSP nommée : la forme qu'attend `security.csp.directives` d'Astro. */
 export type CspDirective = `${
-  | "default-src"
-  | "img-src"
-  | "font-src"
-  | "connect-src"
-  | "object-src"
-  | "base-uri"
-  | "form-action"} ${string}`;
+  "default-src" | "img-src" | "font-src" | "connect-src" | "base-uri" | "form-action"} ${string}`;
 
-/** Hôtes acceptés en `http:` : uniquement la machine locale, pour les e2e. */
-const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+/**
+ * Seule forme acceptée pour `PAPERASSE_ORIGIN` : `http://` + hôte de la boucle locale + port
+ * numérique explicite. Écrite en entier plutôt que déduite de `new URL()` : l'URL est recopiée
+ * telle quelle dans la meta CSP, qu'Astro n'échappe pas. `https://*` élargirait la CSP à tout
+ * hôte, un `"` fermerait l'attribut (et désactiverait la CSP), un `;` injecterait une directive
+ * (security, tour 2, M1). Les e2e n'ont besoin de rien d'autre.
+ */
+const LOCAL_ORIGIN = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):([1-9]\d{0,4})$/u;
 
 /** Base Astro d'une app : la racine pour le lookbook, un sous-dossier pour chaque look. */
 export function baseFor(slug: LookSlug | null): string {
@@ -30,31 +30,23 @@ export function baseFor(slug: LookSlug | null): string {
 }
 
 /**
- * Origine qui servira le site, lue dans l'environnement du build. Refuse tout ce qui n'est pas
- * une origine nue (pas de chemin, pas d'identifiants) : une valeur fantaisiste élargirait la CSP.
+ * Origine qui servira le site, lue dans l'environnement du build. Absente : la production.
+ * Sinon, uniquement une origine locale de test (voir `LOCAL_ORIGIN`) ; tout le reste arrête
+ * le build.
  */
 export function siteOrigin(env: Readonly<Record<string, string | undefined>>): string {
   const raw = env[ORIGIN_ENV];
   if (raw === undefined || raw === "") {
     return SITE;
   }
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`${ORIGIN_ENV} n'est pas une URL : ${raw}`);
-  }
-  const secure = url.protocol === "https:";
-  const local = url.protocol === "http:" && LOCAL_HOSTS.has(url.hostname);
-  if (!secure && !local) {
-    throw new Error(`${ORIGIN_ENV} doit être en https, ou en http sur la machine locale : ${raw}`);
-  }
-  if (url.origin !== raw) {
+  const port = Number(LOCAL_ORIGIN.exec(raw)?.[1] ?? Number.NaN);
+  if (!Number.isInteger(port) || port > 65535) {
     throw new Error(
-      `${ORIGIN_ENV} doit être une origine seule, sans chemin ni slash final : ${raw}`,
+      `${ORIGIN_ENV} doit être une origine locale de test, de la forme http://127.0.0.1:4321 ` +
+        `(hôtes acceptés : 127.0.0.1, localhost, [::1] ; port obligatoire) : ${JSON.stringify(raw)}`,
     );
   }
-  return url.origin;
+  return raw;
 }
 
 /**
@@ -68,18 +60,21 @@ export function collectionSource(origin: string): string {
 
 /**
  * Directives CSP ajoutées à celles qu'Astro génère (script-src et style-src, avec hashes).
+ * Tout est fermé par défaut (`default-src 'none'`) et seuls polices et images sont rouvertes,
+ * sous le préfixe de la collection : aucune app ne fait de requête, n'a de formulaire envoyé
+ * au réseau, de `<base>`, d'iframe ni de média. `'self'` vaudrait pour tout g0nni.github.io
+ * (security, tour 2, M2). `object-src` est couvert par `default-src 'none'`.
  * GitHub Pages ne permet pas d'envoyer d'en-têtes : tout passe par la meta CSP, donc
  * frame-ancestors (ignoré en meta) n'est pas disponible.
  */
 export function cspDirectives(origin: string): CspDirective[] {
   const source = collectionSource(origin);
   return [
-    "default-src 'self'",
+    "default-src 'none'",
     `img-src ${source}`,
     `font-src ${source}`,
-    "connect-src 'self'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
+    "connect-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
   ];
 }

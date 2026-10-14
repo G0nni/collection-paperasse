@@ -3,6 +3,7 @@
 // et ferait échouer des dizaines de tests sans dire pourquoi.
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { hostSources, readCsp } from "./csp";
 
 export default async function globalSetup(): Promise<void> {
   const port = Number(process.env.PORT ?? 4321);
@@ -11,8 +12,7 @@ export default async function globalSetup(): Promise<void> {
   const html = await readFile(index, "utf8").catch(() => {
     throw new Error("site/ est absent : lance `pnpm build:e2e` avant `pnpm test:e2e`.");
   });
-  const csp = /http-equiv="content-security-policy" content="([^"]*)"/u.exec(html)?.[1] ?? "";
-  if (!csp.includes(`script-src ${expected}`)) {
+  if (!hostSources(readCsp(html), "script-src").includes(expected)) {
     throw new Error(
       `site/ n'a pas été construit pour les e2e (la CSP n'autorise pas ${expected}). ` +
         "Lance `pnpm build:e2e` (et non `pnpm build`) avant `pnpm test:e2e`.",

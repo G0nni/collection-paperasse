@@ -19,14 +19,18 @@ pnpm dev          # toutes les apps en dev
 pnpm build        # build de production (CSP limitée à https://g0nni.github.io/collection-paperasse/)
 pnpm build:e2e    # même build, CSP limitée au serveur de test http://127.0.0.1:4321/collection-paperasse/
 pnpm test:e2e     # e2e sur site/ : exige un site/ issu de pnpm build:e2e
+pnpm check:csp    # vérifie que chaque page de site/ porte la CSP de production
 pnpm verify       # check + lint + tests + build:e2e + e2e
 ```
 
-La CSP n'autorise scripts, styles, polices et images que sous le préfixe de la collection. Ce
-préfixe est fixé au build par la variable `PAPERASSE_ORIGIN` (origine seule, sans chemin) :
-absente, c'est la production ; `pnpm build:e2e` la fixe à `http://127.0.0.1:$PORT` (4321 par
-défaut) pour que les e2e testent la vraie CSP. Le déploiement lance `pnpm build`, jamais
-`build:e2e`.
+La CSP ferme tout par défaut (`default-src 'none'`, aucun `'self'`) et n'autorise scripts,
+styles, polices et images que sous le préfixe de la collection. Ce préfixe est fixé au build par
+la variable `PAPERASSE_ORIGIN` : absente, c'est la production ; sinon elle n'accepte qu'une
+origine de test locale (`http://127.0.0.1:4321`, `http://localhost:4321` ou
+`http://[::1]:4321`, port obligatoire). `pnpm build:e2e` la fixe à `http://127.0.0.1:$PORT`
+(4321 par défaut) pour que les e2e testent la vraie CSP. Le déploiement lance `pnpm build`,
+jamais `build:e2e`, puis `scripts/check-csp.mjs` (Node ≥ 22.18), qui arrête la publication si
+une page n'a pas la CSP de production.
 
 Les règles du projet sont dans [`CLAUDE.md`](CLAUDE.md), la spec de chaque app dans [`specs/`](specs/).
 

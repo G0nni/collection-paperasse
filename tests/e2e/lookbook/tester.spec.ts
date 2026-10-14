@@ -1,8 +1,8 @@
 // Tests du lookbook écrits par l'agent tester à partir de specs/lookbook.md et des règles de
-// CLAUDE.md. Les garde-fous communs à toutes les pages (CSP, aucun attribut style, axe à 1280 et
-// 360 px, requêtes tierces, tour des étiquettes au texte exact) sont dans
-// tests/e2e/collection.spec.ts ; les outils (contraste, états, clavier, typographie) dans
-// tests/e2e/support/.
+// CLAUDE.md. Les garde-fous communs à toutes les pages sont dans tests/e2e/collection.spec.ts
+// (axe à 1280 et 360 px, requêtes tierces, tour des étiquettes au texte exact) et
+// tests/e2e/csp.spec.ts (CSP, aucun attribut style) ; les outils (contraste, états, clavier,
+// typographie, CSP) dans tests/e2e/support/.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { gzipSync } from "node:zlib";
@@ -544,7 +544,7 @@ test.describe("lookbook · tester", () => {
   });
 
   // « Aucun attribut style » et « aucune violation CSP » : vérifiés sur chaque page dans
-  // tests/e2e/collection.spec.ts.
+  // tests/e2e/csp.spec.ts.
 
   test("Perf · moins de 50 Ko de JS (gzip) sur la page", async ({ page }) => {
     let total = 0;

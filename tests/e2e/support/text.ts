@@ -2,13 +2,14 @@
 // (packages/shared/src/typography.ts) : un seul oracle, pour les tests unitaires et les e2e.
 import type { Locator, Page } from "@playwright/test";
 import {
+  EM_DASH,
+  NARROW_NBSP,
+  NBSP,
   findTypographyIssues,
   formatTypographyIssue,
 } from "../../../packages/shared/src/typography";
 
-export const NBSP = String.fromCodePoint(0xa0);
-export const NARROW_NBSP = String.fromCodePoint(0x202f);
-export const EM_DASH = String.fromCodePoint(0x2014);
+export { EM_DASH, NBSP };
 
 /** Les insécables comptent comme des espaces quand on compare au texte de la spec. */
 export function normalizeSpaces(text: string): string {

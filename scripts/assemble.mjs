@@ -60,6 +60,18 @@ for (const app of apps) {
   if (app !== ROOT_APP && (await exists(target))) {
     throw new Error(`Collision : site/${app} existe déjà (publié par ${ROOT_APP}).`);
   }
-  await cp(dist, target, { recursive: true, errorOnExist: true, force: false });
+  await cp(dist, target, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+    // Seconde barrière (security, tour 2) : même si un lien symbolique apparaissait entre la
+    // vérification et la copie, cp le refuse au lieu de publier sa cible.
+    filter: async (source) => {
+      if ((await lstat(source)).isSymbolicLink()) {
+        throw new Error(`Lien symbolique refusé dans un build : ${relative(root, source)}`);
+      }
+      return true;
+    },
+  });
   console.log(`assemblé : ${app} → ${relative(root, target) || "."}`);
 }

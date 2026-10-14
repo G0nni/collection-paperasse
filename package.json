@@ -4,12 +4,13 @@
   "type": "module",
   "packageManager": "pnpm@12.11.2",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "build": "pnpm --filter \"./apps/*\" build && node scripts/assemble.mjs",
     "build:e2e": "node scripts/build-e2e.mjs",
+    "check:csp": "node scripts/check-csp.mjs",
     "check": "pnpm -r check && tsc -p tsconfig.json",
     "lint": "node scripts/check-invisible.mjs && eslint . && prettier --check .",
     "format": "prettier --write .",

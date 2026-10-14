@@ -1,12 +1,11 @@
 ---
 // Aperçu du Look 01 : le ticket de caisse du Réunion-mètre, scotché sur le liège.
 import "@fontsource/doto/900.css";
+import { NBSP } from "@paperasse/shared/typography";
 
 type Props = { label: string };
 
 const { label } = Astro.props;
-
-const NBSP = String.fromCodePoint(0xa0);
 
 /** Lignes du ticket : poste facturé, montant. */
 const LINES: readonly (readonly [string, string])[] = [

@@ -16,11 +16,6 @@ describe("findTypographyIssues · textes corrects", () => {
     ).toEqual([]);
   });
 
-  it("accepte l'espace fine insécable", () => {
-    expect(findTypographyIssues(`Vraiment${NARROW_NBSP}?`)).toEqual([]);
-    expect(findTypographyIssues(`«${NARROW_NBSP}Oui${NARROW_NBSP}»`)).toEqual([]);
-  });
-
   it("accepte « ?! » quand seul le premier signe porte l'insécable", () => {
     expect(findTypographyIssues(`Quoi${NBSP}?!`)).toEqual([]);
     expect(findTypographyIssues(`Non${NBSP}!!!`)).toEqual([]);
@@ -61,6 +56,48 @@ describe("findTypographyIssues · espaces sécables refusées", () => {
     expect(kinds(`«${NBSP}Oui »`)).toEqual(["breaking-space"]);
     expect(kinds(`«${THIN_SPACE}Oui\t»`)).toEqual(["breaking-space", "breaking-space"]);
     expect(kinds(`«\nOui${NBSP}»`)).toEqual(["breaking-space"]);
+  });
+});
+
+describe("findTypographyIssues · U+00A0 seule (specs/lookbook.md, « Insécable »)", () => {
+  it("refuse l'espace fine insécable U+202F, avant la ponctuation et dans les guillemets", () => {
+    expect(kinds(`Vraiment${NARROW_NBSP}?`)).toEqual(["narrow-nbsp"]);
+    expect(kinds(`«${NARROW_NBSP}Oui${NARROW_NBSP}»`)).toEqual(["narrow-nbsp", "narrow-nbsp"]);
+  });
+
+  it("refuse une U+202F collée derrière la bonne insécable", () => {
+    expect(kinds(`Prix${NARROW_NBSP}${NBSP}: rien`)).toEqual(["narrow-nbsp"]);
+  });
+
+  it("l'explique en clair dans le message", () => {
+    const [issue] = findTypographyIssues(`Vraiment${NARROW_NBSP}?`);
+    expect(issue === undefined ? "" : formatTypographyIssue(issue)).toBe(
+      `espace fine insécable (U+202F) au lieu de U+00A0 près de « ? » "Vraiment⍿?"`,
+    );
+  });
+});
+
+describe("findTypographyIssues · espace sécable derrière l'insécable", () => {
+  it("regarde le caractère au-delà de l'insécable, des deux côtés des guillemets", () => {
+    expect(kinds(`Prix ${NBSP}: rien`)).toEqual(["breaking-space"]);
+    expect(kinds(`«${NBSP} Oui${NBSP}»`)).toEqual(["breaking-space"]);
+    expect(kinds(`«${NBSP}Oui ${NBSP}»`)).toEqual(["breaking-space"]);
+  });
+
+  it("accepte l'insécable en début de texte (rien au-delà)", () => {
+    expect(findTypographyIssues(`${NBSP}: suite`)).toEqual([]);
+  });
+});
+
+describe("findTypographyIssues · URL", () => {
+  it("masque les URL quelle que soit la casse, et les arrête aux guillemets", () => {
+    expect(findTypographyIssues("HTTPS://EXEMPLE.FR/?Q=1!")).toEqual([]);
+    expect(kinds(`«${NBSP}https://exemple.fr»`)).toEqual(["missing-nbsp"]);
+    expect(kinds(`"https://exemple.fr" !`)).toEqual(["breaking-space"]);
+  });
+
+  it("voit le tiret cadratin dans une URL affichée", () => {
+    expect(kinds(`https://exemple.fr/a${EM_DASH}b`)).toEqual(["em-dash"]);
   });
 });
 

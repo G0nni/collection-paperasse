@@ -22,29 +22,71 @@ describe("siteOrigin", () => {
     expect(siteOrigin({ [ORIGIN_ENV]: "" })).toBe(SITE);
   });
 
-  it("accepte une origine https ou une origine http locale (e2e)", () => {
-    expect(siteOrigin({ [ORIGIN_ENV]: "https://exemple.fr" })).toBe("https://exemple.fr");
-    expect(siteOrigin({ [ORIGIN_ENV]: "http://127.0.0.1:4321" })).toBe("http://127.0.0.1:4321");
-    expect(siteOrigin({ [ORIGIN_ENV]: "http://localhost:4321" })).toBe("http://localhost:4321");
+  it("accepte une origine http locale avec un port explicite (e2e)", () => {
+    for (const origin of [
+      "http://127.0.0.1:4321",
+      "http://localhost:4321",
+      "http://[::1]:4321",
+      "http://127.0.0.1:1",
+      "http://127.0.0.1:65535",
+    ]) {
+      expect(siteOrigin({ [ORIGIN_ENV]: origin }), origin).toBe(origin);
+    }
   });
 
-  it("refuse le http distant : la CSP autoriserait des scripts interceptables", () => {
-    expect(() => siteOrigin({ [ORIGIN_ENV]: "http://exemple.fr" })).toThrow(/https/u);
-  });
-
-  it("refuse tout ce qui n'est pas une origine nue", () => {
+  // security, tour 2, M1 : la valeur est recopiée telle quelle dans la meta CSP, qu'Astro
+  // n'échappe pas.
+  it("refuse tout le reste, y compris https et les caractères qui cassent la meta CSP", () => {
     for (const value of [
-      "pas une url",
-      "https://exemple.fr/",
-      "https://exemple.fr/chemin",
-      "https://exemple.fr?x=1",
-      "https://moi:secret@exemple.fr",
+      // https : la production n'a pas besoin de la variable, les e2e tournent en local.
+      "https://exemple.fr",
+      "https://g0nni.github.io",
+      "https://*",
+      'https://a"b',
+      "https://x;script-src",
       "https://exemple.fr; script-src *",
+      "http://*:4321",
+      'http://127.0.0.1:4321"',
+      'http://127.0.0.1:4321" onload="x',
+      "http://127.0.0.1:4321;script-src *",
+      "http://127.0.0.1:4321 'unsafe-inline'",
+      "http://127.0.0.1:4321'",
+      "'self'",
+      "'",
+      " http://127.0.0.1:4321",
+      "http://127.0.0.1:4321 ",
+      "http://127.0.0.1:4321\n",
+      "http://127.0.0.1:4321\t",
+      "http:// 127.0.0.1:4321",
+      // Hôte distant ou déguisé.
+      "http://exemple.fr:4321",
+      "http://127.0.0.1.exemple.fr:4321",
+      "http://localhost.exemple.fr:4321",
+      "http://127.0.0.2:4321",
+      "http://0.0.0.0:4321",
+      "http://[::ffff:127.0.0.1]:4321",
+      "http://moi:secret@127.0.0.1:4321",
+      // Port absent, nul, non numérique, hors bornes ou avec zéro de tête.
+      "http://127.0.0.1",
+      "http://localhost",
+      "http://127.0.0.1:",
+      "http://127.0.0.1:0",
+      "http://127.0.0.1:04321",
+      "http://127.0.0.1:abc",
+      "http://127.0.0.1:65536",
+      "http://127.0.0.1:999999",
+      // Pas une origine nue.
+      "http://127.0.0.1:4321/",
+      "http://127.0.0.1:4321/chemin",
+      "http://127.0.0.1:4321?x=1",
+      "http://127.0.0.1:4321#x",
+      "HTTP://LOCALHOST:4321",
+      "pas une url",
       // Assemblé en morceaux : no-script-url refuse le littéral, même dans un test.
       ["javascript", "alert(1)"].join(":"),
       "data:text/html,x",
     ]) {
-      expect(() => siteOrigin({ [ORIGIN_ENV]: value }), value).toThrow();
+      expect(() => siteOrigin({ [ORIGIN_ENV]: value }), value).toThrow(ORIGIN_ENV);
     }
   });
 });
@@ -57,10 +99,17 @@ describe("cspDirectives", () => {
     expect(directives.join(";")).not.toContain("data:");
   });
 
-  it("garde les garde-fous de base", () => {
-    expect(cspDirectives(SITE)).toEqual(
-      expect.arrayContaining(["default-src 'self'", "object-src 'none'", "base-uri 'self'"]),
-    );
+  // security, tour 2, M2 : 'self' couvrirait tout g0nni.github.io.
+  it("ferme tout le reste, sans aucun 'self'", () => {
+    expect(cspDirectives(SITE)).toEqual([
+      "default-src 'none'",
+      "img-src https://g0nni.github.io/collection-paperasse/",
+      "font-src https://g0nni.github.io/collection-paperasse/",
+      "connect-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+    ]);
+    expect(cspDirectives(SITE).join(";")).not.toContain("'self'");
   });
 
   it("n'autorise jamais d'inline ni d'eval", () => {

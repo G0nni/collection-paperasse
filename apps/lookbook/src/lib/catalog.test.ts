@@ -1,18 +1,16 @@
 import { COLLECTION_BASE } from "@paperasse/shared/config";
 import { LOOKS, type LookSlug } from "@paperasse/shared/looks";
-import { findTypographyIssues, formatTypographyIssue } from "@paperasse/shared/typography";
+import { NBSP, findTypographyIssues, formatTypographyIssue } from "@paperasse/shared/typography";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { buildCatalog, LOOK_CONTENT } from "./catalog";
 import { PAGE_TEXT } from "./page-text";
 
-const NON_BREAKING_SPACES = new RegExp(
-  `[${String.fromCodePoint(0xa0)}${String.fromCodePoint(0x202f)}]`,
-  "gu",
-);
-
-/** Les espaces insécables comptent comme des espaces quand on compare au texte de la spec. */
+/**
+ * L'insécable compte comme une espace quand on compare au texte de la spec. U+00A0 seule
+ * (specs/lookbook.md) : une U+202F ferait échouer la comparaison.
+ */
 function normalizeSpaces(text: string): string {
-  return text.replace(NON_BREAKING_SPACES, " ");
+  return text.replaceAll(NBSP, " ");
 }
 
 /** Fautes typographiques d'un texte, sous forme de messages lisibles. */

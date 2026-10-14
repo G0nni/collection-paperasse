@@ -13,4 +13,13 @@ const result = spawnSync("pnpm", ["build"], {
   // Sous Windows, pnpm est un .cmd : il faut passer par le shell.
   shell: process.platform === "win32",
 });
+if (result.error !== undefined) {
+  const missing = "code" in result.error && result.error.code === "ENOENT";
+  console.error(
+    missing
+      ? "build e2e : pnpm introuvable dans le PATH. Installe-le (corepack enable) puis relance."
+      : `build e2e : impossible de lancer pnpm build (${result.error.message}).`,
+  );
+  process.exit(1);
+}
 process.exit(result.status ?? 1);

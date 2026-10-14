@@ -2,10 +2,14 @@
 // Étiquette de vêtement cousue en bas de chaque look (specs/lookbook.md, « Le CollectionTag »).
 // Texte affiché : COLLECTION PAPERASSE · AH26 · LOOK 01/03 · Suivant : Juré Craché →
 import { TAG_SEPARATOR, tagFor, type LookSlug } from "./looks";
+import { NBSP } from "./typography";
 
 type Props = { slug: LookSlug };
 
 const tag = tagFor(Astro.props.slug);
+// Insécable collée au texte, sans blanc entre elle et la flèche : « → » ne part jamais seule à
+// la ligne.
+const nextText = `${tag.next.text}${NBSP}`;
 ---
 
 <nav class="collection-tag" aria-label="Collection">
@@ -21,7 +25,8 @@ const tag = tagFor(Astro.props.slug);
   </span>
   <a class="next" href={tag.next.href}>
     <span>
-      {tag.next.text} <span aria-hidden="true">→</span>
+      {nextText}
+      <span aria-hidden="true">→</span>
     </span>
   </a>
 </nav>

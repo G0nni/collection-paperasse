@@ -1,7 +1,5 @@
 import { baseFor } from "./config";
-
-/** Espace insécable : avant « : ; ! ? » et à l'intérieur des guillemets (CLAUDE.md). */
-const NBSP = String.fromCodePoint(0xa0);
+import { NBSP } from "./typography";
 
 /**
  * Ordre de défilé. Ne jamais réordonner : le numéro de look fait partie de l'identité.

@@ -1,8 +1,6 @@
 import { baseFor } from "@paperasse/shared/config";
 import { LOOKS, formatLookNumber, type Look, type LookSlug } from "@paperasse/shared/looks";
-
-/** Espace insécable, à mettre avant « : ; ! ? » et à l'intérieur des guillemets. */
-const NBSP = String.fromCodePoint(0xa0);
+import { NBSP } from "@paperasse/shared/typography";
 
 export type SheetTerm = "Matière" | "Coupe" | "Prix";
 

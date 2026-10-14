@@ -10,9 +10,17 @@ import { REPO_URL } from "@paperasse/shared/config";
 import ActePreview from "../components/ActePreview.astro";
 import ListingPreview from "../components/ListingPreview.astro";
 import TicketPreview from "../components/TicketPreview.astro";
-import { buildCatalog, PAGE_TEXT } from "../lib/catalog";
+import { buildCatalog, type PreviewKind } from "../lib/catalog";
+import { PAGE_TEXT } from "../lib/page-text";
 
-const catalog = buildCatalog();
+/** Le document punaisé au-dessus de chaque fiche, selon le look. */
+const PREVIEWS: Readonly<Record<PreviewKind, typeof TicketPreview>> = {
+  ticket: TicketPreview,
+  acte: ActePreview,
+  listing: ListingPreview,
+};
+
+const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.preview] }));
 ---
 
 <html lang="fr">
@@ -48,14 +56,13 @@ const catalog = buildCatalog();
 
       <main>
         <h2 class="visually-hidden">{PAGE_TEXT.looksHeading}</h2>
-        <ol class="looks">
-          {catalog.map((card) => (
+        {/* role="list" : Safari retire la sémantique de liste quand les puces sont masquées. */}
+        <ol class="looks" role="list">
+          {catalog.map(({ Preview, ...card }) => (
             <li class="look">
               <article aria-labelledby={`${card.slug}-title`}>
                 <div class:list={["preview", `preview-${card.preview}`]}>
-                  {card.preview === "ticket" && <TicketPreview label={card.previewLabel} />}
-                  {card.preview === "acte" && <ActePreview label={card.previewLabel} />}
-                  {card.preview === "listing" && <ListingPreview label={card.previewLabel} />}
+                  <Preview label={card.previewLabel} />
                 </div>
                 <div class="label">
                   <span class="hole" aria-hidden="true" />
@@ -112,13 +119,25 @@ const catalog = buildCatalog();
 </html>
 
 <style is:global>
+  /* Tokens de specs/lookbook.md (« Design »). */
+  :root {
+    --cork: #c38f55;
+    --poster: #ffe45c;
+    --ink: #1b1b1b;
+    --stamp-red: #b3261e;
+    --kraft: #ead3a2;
+    --look-number: #c2410c;
+    --postit-blue: #a7e0f2;
+    --shadow: 60 30 5;
+  }
+
   html {
-    background: #c38f55;
+    background: var(--cork);
   }
 
   body {
     margin: 0;
-    color: #1b1b1b;
+    color: var(--ink);
     font-family: "JetBrains Mono", ui-monospace, monospace;
     /* Liège : deux semis de points superposés, l'un sombre, l'autre clair. */
     background:
@@ -126,7 +145,7 @@ const catalog = buildCatalog();
         11px,
       radial-gradient(circle at 70% 60%, rgb(255 235 200 / 0.28) 0 1px, transparent 1.5px) 0 0 /
         13px 7px,
-      #c38f55;
+      var(--cork);
   }
 </style>
 
@@ -165,12 +184,12 @@ const catalog = buildCatalog();
     box-sizing: border-box;
     width: min(100%, 860px);
     padding: clamp(28px, 5vw, 56px) clamp(20px, 5vw, 64px) 36px;
-    background: #ffe45c;
+    background: var(--poster);
     text-align: center;
     transform: rotate(-1deg);
     box-shadow:
       0 2px 0 rgb(0 0 0 / 0.08),
-      0 22px 40px rgb(60 30 5 / 0.35);
+      0 22px 40px rgb(var(--shadow) / 0.35);
   }
 
   .pin {
@@ -184,7 +203,7 @@ const catalog = buildCatalog();
 
   .pin-red {
     left: 22px;
-    background: radial-gradient(circle at 35% 30%, #ff8a80, #b3261e 70%);
+    background: radial-gradient(circle at 35% 30%, #ff8a80, var(--stamp-red) 70%);
   }
 
   .pin-blue {
@@ -208,8 +227,8 @@ const catalog = buildCatalog();
   .rule {
     display: block;
     height: 4px;
-    border-top: 2px solid #1b1b1b;
-    border-bottom: 1px solid #1b1b1b;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
   }
 
   h1 {
@@ -237,10 +256,10 @@ const catalog = buildCatalog();
     right: clamp(8px, 4vw, 40px);
     bottom: -22px;
     padding: 6px 14px;
-    border: 3px solid #b3261e;
+    border: 3px solid var(--stamp-red);
     border-radius: 6px;
     background: rgb(255 255 255 / 0.35);
-    color: #b3261e;
+    color: var(--stamp-red);
     font-family: "Alfa Slab One", serif;
     font-size: 1.25rem;
     text-transform: uppercase;
@@ -311,8 +330,8 @@ const catalog = buildCatalog();
     gap: 0.625rem;
     padding: 1.125rem 1.25rem 1.25rem 2.75rem;
     border-radius: 6px;
-    background: #ead3a2;
-    box-shadow: 0 6px 14px rgb(60 30 5 / 0.25);
+    background: var(--kraft);
+    box-shadow: 0 6px 14px rgb(var(--shadow) / 0.25);
   }
 
   .hole {
@@ -322,7 +341,7 @@ const catalog = buildCatalog();
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #c38f55;
+    background: var(--cork);
     box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.4);
   }
 
@@ -333,7 +352,7 @@ const catalog = buildCatalog();
 
   /* Orange des numéros réservé au très grand corps (≥ 34 px) : contraste 3:1 sur le kraft. */
   .number {
-    color: #c2410c;
+    color: var(--look-number);
     font-family: "Alfa Slab One", serif;
     font-size: 2.125rem;
     line-height: 1;
@@ -358,7 +377,7 @@ const catalog = buildCatalog();
     gap: 0.25rem 0.75rem;
     margin: 0;
     padding-top: 0.625rem;
-    border-top: 1px solid #1b1b1b;
+    border-top: 1px solid var(--ink);
     font-size: 0.8125rem;
   }
 
@@ -371,11 +390,11 @@ const catalog = buildCatalog();
   }
 
   a {
-    color: #1b1b1b;
+    color: var(--ink);
   }
 
   a:focus-visible {
-    outline: 3px solid #1b1b1b;
+    outline: 3px solid var(--ink);
     outline-offset: 3px;
   }
 
@@ -385,19 +404,19 @@ const catalog = buildCatalog();
     align-self: flex-start;
     min-height: 44px;
     padding: 0 1.125rem;
-    background: #1b1b1b;
-    color: #ffe45c;
+    background: var(--ink);
+    color: var(--poster);
     font-size: 0.875rem;
     font-weight: 700;
     text-decoration: none;
   }
 
   .try:hover {
-    background: #b3261e;
+    background: var(--stamp-red);
     text-decoration: underline;
   }
 
-  /* Post-its du pied de page */
+  /* Post-its du pied de page : inclinés et en Courier Prime, comme sur la maquette. */
 
   .notes {
     display: flex;
@@ -415,10 +434,11 @@ const catalog = buildCatalog();
     width: 220px;
     min-height: 160px;
     padding: 1.25rem;
-    box-shadow: 0 10px 18px rgb(60 30 5 / 0.3);
+    box-shadow: 0 10px 18px rgb(var(--shadow) / 0.3);
     font-family: "Courier Prime", monospace;
     font-size: 1.0625rem;
     line-height: 1.35;
+    transform: rotate(var(--tilt, 0deg));
   }
 
   .note p {
@@ -426,11 +446,13 @@ const catalog = buildCatalog();
   }
 
   .note-yellow {
-    background: #ffe45c;
+    --tilt: -2deg;
+    background: var(--poster);
   }
 
   .note-blue {
-    background: #a7e0f2;
+    --tilt: 1.5deg;
+    background: var(--postit-blue);
   }
 
   .repo {
@@ -442,7 +464,10 @@ const catalog = buildCatalog();
     text-underline-offset: 0.2em;
   }
 
+  /* Le survol épaissit le soulignement en plus de changer la couleur (CLAUDE.md : jamais la
+     couleur seule pour distinguer deux états). */
   .repo:hover {
-    color: #b3261e;
+    color: var(--stamp-red);
+    text-decoration-thickness: 3px;
   }
 </style>

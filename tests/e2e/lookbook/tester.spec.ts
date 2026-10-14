@@ -1,15 +1,21 @@
 // Tests du lookbook écrits par l'agent tester à partir de specs/lookbook.md et des règles de
-// CLAUDE.md. Ils complètent tests/e2e/lookbook/lookbook.spec.ts (builder) et
-// tests/e2e/collection.spec.ts (garde-fous communs) avec des assertions plus strictes.
+// CLAUDE.md. Les garde-fous communs à toutes les pages (CSP, aucun attribut style, axe à 1280 et
+// 360 px, requêtes tierces, tour des étiquettes au texte exact) sont dans
+// tests/e2e/collection.spec.ts ; les outils (contraste, états, clavier, typographie) dans
+// tests/e2e/support/.
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { gzipSync } from "node:zlib";
+import { contrastFailures, focusRing, snapshotTextNodes, worstContrast } from "../support/contrast";
+import { tabTo } from "../support/keyboard";
+import { colorState, effectiveRotation, nonColorState } from "../support/states";
+import { EM_DASH, NBSP, normalizeSpaces, perceivedTexts, typographyIssues } from "../support/text";
 
-const NBSP = String.fromCodePoint(0xa0);
-const NARROW_NBSP = String.fromCodePoint(0x202f);
-const EM_DASH = String.fromCodePoint(0x2014);
 const BASE_PATH = "/collection-paperasse/";
 const REPO_URL = "https://github.com/G0nni/collection-paperasse";
+
+/** Les tests qui fixent leur propre viewport ne tournent qu'une fois, dans le projet desktop. */
+const FIXED_VIEWPORT_PROJECT = "desktop";
 
 const LOOKS = [
   {
@@ -43,325 +49,6 @@ const LOOKS = [
     },
   },
 ] as const;
-
-/** Les insécables comptent comme des espaces quand on compare au texte de la spec. */
-function normalizeSpaces(text: string): string {
-  return text.replaceAll(NBSP, " ").replaceAll(NARROW_NBSP, " ").replace(/\s+/gu, " ").trim();
-}
-
-// ---------------------------------------------------------------------------------------------
-// Typographie : oracle indépendant de apps/lookbook/src/lib/typography.ts.
-// ---------------------------------------------------------------------------------------------
-
-function isNonBreaking(char: string | undefined): boolean {
-  return char === NBSP || char === NARROW_NBSP;
-}
-
-/** Renvoie les fautes trouvées, avec un extrait autour de chacune. */
-function typographyIssues(text: string): string[] {
-  const issues: string[] = [];
-  const chars = Array.from(text);
-  const context = (index: number) =>
-    JSON.stringify(
-      chars
-        .slice(Math.max(0, index - 15), index + 15)
-        .join("")
-        .replaceAll(NBSP, "⍽")
-        .replaceAll(NARROW_NBSP, "⍽"),
-    );
-  chars.forEach((char, index) => {
-    const previous = chars[index - 1];
-    const next = chars[index + 1];
-    if (char === EM_DASH) issues.push(`tiret cadratin ${context(index)}`);
-    if (char === "«" && !isNonBreaking(next)) {
-      issues.push(`pas d'insécable après « ${context(index)}`);
-    }
-    if (char === "»" && !isNonBreaking(previous)) {
-      issues.push(`pas d'insécable avant » ${context(index)}`);
-    }
-    if (":;!?".includes(char) && index > 0) {
-      // Heure (14:30) ou schéma d'URL (https://) : pas d'espace.
-      if (char === ":" && /\d/u.test(previous ?? "") && /\d/u.test(next ?? "")) return;
-      if (char === ":" && next === "/") return;
-      // « ?! » : seul le premier signe porte l'espace.
-      if ("!?".includes(char) && previous !== undefined && "!?".includes(previous)) return;
-      if (!isNonBreaking(previous)) {
-        issues.push(`pas d'insécable avant « ${char} » ${context(index)}`);
-      }
-    }
-  });
-  return issues;
-}
-
-/** Tous les textes perçus de la page : rendu (innerText), attributs lus par les lecteurs d'écran. */
-async function perceivedTexts(page: Page, root: Locator) {
-  const rendered = await root.evaluate((element) => {
-    const texts: { where: string; text: string }[] = [];
-    if (element instanceof HTMLElement) {
-      texts.push({ where: "texte rendu", text: element.innerText });
-    }
-    for (const node of element.querySelectorAll("[aria-label], [alt], [title]")) {
-      for (const attribute of ["aria-label", "alt", "title"]) {
-        const value = node.getAttribute(attribute);
-        if (value !== null) texts.push({ where: `@${attribute}`, text: value });
-      }
-    }
-    return texts;
-  });
-  const head = await page.evaluate(() => [
-    { where: "<title>", text: document.title },
-    {
-      where: "meta description",
-      text: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "",
-    },
-  ]);
-  return [...rendered, ...head];
-}
-
-// ---------------------------------------------------------------------------------------------
-// Couleurs et contraste, calculés à partir des styles calculés (axe ne voit ni :hover ni
-// :focus-visible, et classe « incomplete » tout ce qui est sur un dégradé).
-// ---------------------------------------------------------------------------------------------
-
-type Rgba = { r: number; g: number; b: number; a: number };
-
-type Layer = { background: string; image: string; opacity: string };
-
-type StyleSnapshot = {
-  text: string;
-  color: string;
-  fontSize: number;
-  fontWeight: number;
-  /** Du nœud lui-même jusqu'à <html>. */
-  chain: Layer[];
-};
-
-function parseColor(value: string): Rgba[] {
-  const colors: Rgba[] = [];
-  for (const match of value.matchAll(/rgba?\(([^)]+)\)/gu)) {
-    const parts = (match[1] ?? "")
-      .split(/[\s,/]+/u)
-      .filter(Boolean)
-      .map(Number);
-    const [r = 0, g = 0, b = 0, a = 1] = parts;
-    colors.push({ r, g, b, a });
-  }
-  for (const match of value.matchAll(/#([0-9a-f]{6})\b/giu)) {
-    const hex = match[1] ?? "000000";
-    colors.push({
-      r: parseInt(hex.slice(0, 2), 16),
-      g: parseInt(hex.slice(2, 4), 16),
-      b: parseInt(hex.slice(4, 6), 16),
-      a: 1,
-    });
-  }
-  return colors;
-}
-
-function over(top: Rgba, bottom: Rgba): Rgba {
-  const a = top.a + bottom.a * (1 - top.a);
-  if (a === 0) return { r: 0, g: 0, b: 0, a: 0 };
-  const mix = (t: number, b: number) => (t * top.a + b * bottom.a * (1 - top.a)) / a;
-  return { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a };
-}
-
-function luminance({ r, g, b }: Rgba): number {
-  const channel = (value: number) => {
-    const c = value / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-function contrast(first: Rgba, second: Rgba): number {
-  const [light, dark] = [luminance(first), luminance(second)].sort((x, y) => y - x);
-  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
-}
-
-/**
- * Fonds possibles derrière un nœud. Chaque dégradé rencontré ajoute ses couleurs comme fonds
- * candidats (on garde le pire cas). Une image `url(…)` rend le calcul impossible : signalé.
- */
-function backdrops(chain: Layer[]): { candidates: Rgba[]; unknown: string[] } {
-  const unknown: string[] = [];
-  const stack: Layer[] = [];
-  for (const layer of chain) {
-    stack.push(layer);
-    const color = parseColor(layer.background)[0];
-    if (color !== undefined && color.a >= 1) break;
-  }
-  let candidates: Rgba[] = [{ r: 255, g: 255, b: 255, a: 1 }];
-  for (const layer of stack.reverse()) {
-    const color = parseColor(layer.background)[0] ?? { r: 0, g: 0, b: 0, a: 0 };
-    let next = candidates.map((candidate) => over(color, candidate));
-    if (layer.image !== "none") {
-      if (layer.image.includes("url(")) unknown.push(layer.image);
-      for (const stop of parseColor(layer.image)) {
-        next = next.concat(candidates.map((candidate) => over(stop, over(color, candidate))));
-      }
-    }
-    if (Number(layer.opacity) < 1) unknown.push(`opacity ${layer.opacity}`);
-    candidates = next;
-  }
-  return { candidates, unknown };
-}
-
-function worstContrast(foreground: string, chain: Layer[]) {
-  const { candidates, unknown } = backdrops(chain);
-  const text = parseColor(foreground)[0] ?? { r: 0, g: 0, b: 0, a: 1 };
-  const ratios = candidates.map((background) => contrast(over(text, background), background));
-  return { ratio: Math.min(...ratios), unknown };
-}
-
-function requiredRatio(snapshot: StyleSnapshot): number {
-  const large =
-    snapshot.fontSize >= 24 || (snapshot.fontSize >= 18.66 && snapshot.fontWeight >= 700);
-  return large ? 3 : 4.5;
-}
-
-/** Instantané des nœuds porteurs de texte sous `root` (lui compris). Autonome : sérialisé. */
-function snapshotTextNodes(root: Element): StyleSnapshot[] {
-  const layerOf = (node: Element) => {
-    const style = getComputedStyle(node);
-    return {
-      background: style.backgroundColor,
-      image: style.backgroundImage,
-      opacity: style.opacity,
-    };
-  };
-  const result: StyleSnapshot[] = [];
-  const nodes = [root, ...root.querySelectorAll("*")];
-  for (const node of nodes) {
-    if (node.closest("svg") !== null) continue;
-    const ownText = [...node.childNodes]
-      .filter((child) => child.nodeType === Node.TEXT_NODE)
-      .map((child) => child.textContent ?? "")
-      .join("")
-      .trim();
-    if (ownText === "") continue;
-    const rect = node.getBoundingClientRect();
-    if (rect.width <= 1 || rect.height <= 1) continue;
-    const style = getComputedStyle(node);
-    if (style.visibility === "hidden" || style.display === "none") continue;
-    const chain = [];
-    for (let current: Element | null = node; current !== null; current = current.parentElement) {
-      chain.push(layerOf(current));
-    }
-    result.push({
-      text: ownText.slice(0, 50),
-      color: style.color,
-      fontSize: parseFloat(style.fontSize),
-      fontWeight: Number(style.fontWeight),
-      chain,
-    });
-  }
-  return result;
-}
-
-function contrastFailures(snapshots: StyleSnapshot[]): string[] {
-  const failures: string[] = [];
-  for (const snapshot of snapshots) {
-    const { ratio, unknown } = worstContrast(snapshot.color, snapshot.chain);
-    const required = requiredRatio(snapshot);
-    if (unknown.length > 0) {
-      failures.push(`« ${snapshot.text} » : fond non calculable (${unknown.join(", ")})`);
-    } else if (ratio < required) {
-      failures.push(
-        `« ${snapshot.text} » : ${ratio.toFixed(2)}:1 < ${required}:1 (${snapshot.color}, ${snapshot.fontSize}px)`,
-      );
-    }
-  }
-  return failures;
-}
-
-/** Propriétés qui distinguent un état sans passer par la couleur. */
-function nonColorState(element: Element) {
-  const style = getComputedStyle(element);
-  return {
-    textDecorationLine: style.textDecorationLine,
-    textDecorationThickness: style.textDecorationThickness,
-    textDecorationStyle: style.textDecorationStyle,
-    outlineStyle: style.outlineStyle,
-    outlineWidth: style.outlineWidth,
-    borderWidth: `${style.borderTopWidth} ${style.borderRightWidth} ${style.borderBottomWidth} ${style.borderLeftWidth}`,
-    borderStyle: style.borderTopStyle,
-    boxShadow: style.boxShadow,
-    transform: style.transform,
-    fontWeight: style.fontWeight,
-    fontStyle: style.fontStyle,
-  };
-}
-
-function colorState(element: Element) {
-  const style = getComputedStyle(element);
-  return `${style.color} | ${style.backgroundColor} | ${style.textDecorationColor}`;
-}
-
-/** Instantané du contour de focus et du fond qui l'entoure (celui du parent). */
-function focusRing(element: Element) {
-  const style = getComputedStyle(element);
-  const chain = [];
-  for (
-    let current: Element | null = element.parentElement;
-    current !== null;
-    current = current.parentElement
-  ) {
-    const parentStyle = getComputedStyle(current);
-    chain.push({
-      background: parentStyle.backgroundColor,
-      image: parentStyle.backgroundImage,
-      opacity: parentStyle.opacity,
-    });
-  }
-  return {
-    focusVisible: element.matches(":focus-visible"),
-    outlineStyle: style.outlineStyle,
-    outlineWidth: parseFloat(style.outlineWidth),
-    outlineColor: style.outlineColor,
-    outlineOffset: parseFloat(style.outlineOffset),
-    boxShadow: style.boxShadow,
-    chain,
-  };
-}
-
-/** Angle de rotation effectif (en degrés) d'un élément, ancêtres compris. Autonome. */
-function effectiveRotation(element: Element): number {
-  let a = 1;
-  let b = 0;
-  let c = 0;
-  let d = 1;
-  for (let current: Element | null = element; current !== null; current = current.parentElement) {
-    const transform = getComputedStyle(current).transform;
-    if (transform === "none") continue;
-    const values = (/matrix\(([^)]+)\)/u.exec(transform)?.[1] ?? "1,0,0,1,0,0")
-      .split(",")
-      .map(Number);
-    const [ma = 1, mb = 0, mc = 0, md = 1] = values;
-    // Le transform de l'ancêtre s'applique après celui du descendant : M_ancêtre × M_courant.
-    const na = ma * a + mc * b;
-    const nb = mb * a + md * b;
-    const nc = ma * c + mc * d;
-    const nd = mb * c + md * d;
-    a = na;
-    b = nb;
-    c = nc;
-    d = nd;
-  }
-  return (Math.atan2(b, a) * 180) / Math.PI;
-}
-
-/** Va au lien `link` au clavier depuis le haut de la page. Échoue s'il n'est jamais atteint. */
-async function tabTo(page: Page, link: Locator, maxPresses = 40) {
-  await page.locator("body").focus();
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  });
-  for (let press = 0; press < maxPresses; press += 1) {
-    await page.keyboard.press("Tab");
-    if (await link.evaluate((element) => element === document.activeElement)) return;
-  }
-  throw new Error("lien jamais atteint au clavier");
-}
 
 async function cardsOf(page: Page) {
   const boxes = [];
@@ -492,7 +179,10 @@ test.describe("lookbook · tester", () => {
   // CA-2
   // -------------------------------------------------------------------------------------------
 
-  test("CA-2 · à 360 px, les cartes s'empilent et tiennent dans l'écran", async ({ page }) => {
+  test("CA-2 · à 360 px, les cartes s'empilent et tiennent dans l'écran", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto("");
     const [first, second, third] = await cardsOf(page);
@@ -510,7 +200,10 @@ test.describe("lookbook · tester", () => {
   });
 
   for (const width of [960, 1440]) {
-    test(`CA-2 · à ${width} px, trois colonnes alignées sans chevauchement`, async ({ page }) => {
+    test(`CA-2 · à ${width} px, trois colonnes alignées sans chevauchement`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
       await page.setViewportSize({ width, height: 900 });
       await page.goto("");
       const [first, second, third] = await cardsOf(page);
@@ -602,19 +295,20 @@ test.describe("lookbook · tester", () => {
   // CA-4
   // -------------------------------------------------------------------------------------------
 
-  for (const width of [360, 960, 1280]) {
-    test(`CA-4 · axe : zéro violation à ${width} px (WCAG 2.2 AA + bonnes pratiques)`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("");
-      await page.evaluate(() => document.fonts.ready);
-      const results = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
-        .analyze();
-      expect(results.violations.map((violation) => violation.id)).toEqual([]);
-    });
-  }
+  // 1280 px (desktop) et 360 px (mobile-360) : passe axe unique dans collection.spec.ts, avec
+  // les mêmes règles. Ici, seulement la largeur de bascule de CA-2.
+  test("CA-4 · axe : zéro violation à 960 px (WCAG 2.2 AA + bonnes pratiques)", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 960, height: 900 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+      .analyze();
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
 
   test("CA-4 · axe : zéro violation en mouvement réduit et en thème sombre", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
@@ -740,50 +434,15 @@ test.describe("lookbook · tester", () => {
   // CA-5 et CollectionTag
   // -------------------------------------------------------------------------------------------
 
-  test("CA-5 · on fait le tour par les liens « suivant » et l'étiquette est correcte partout", async ({
+  // Le tour par les liens « suivant » (texte exact, liens, étiquette cousue en bas) est dans
+  // tests/e2e/collection.spec.ts : un seul tour pour toute la collection.
+
+  test("CA-5 · pas d'étiquette de collection sur le lookbook (c'est la racine)", async ({
     page,
-    baseURL,
   }) => {
-    const base = new URL(baseURL ?? "http://localhost/collection-paperasse/");
+    // specs/lookbook.md : « cousue en bas de chaque look (pas sur le lookbook, qui est la racine) ».
     await page.goto("");
-    await page.getByRole("article", { name: LOOKS[0].name, exact: true }).getByRole("link").click();
-
-    for (const [index, look] of LOOKS.entries()) {
-      await expect(page).toHaveURL(new URL(`${look.slug}/`, base).href);
-      const tags = page.getByRole("navigation", { name: "Collection", exact: true });
-      await expect(tags).toHaveCount(1);
-      const tag = tags.first();
-      expect(await tag.evaluate((element) => element.tagName)).toBe("NAV");
-
-      // Texte de la spec : « COLLECTION PAPERASSE · AH26 · LOOK 02/03 · suivant → ».
-      const text = normalizeSpaces(await tag.innerText());
-      expect(text).toMatch(
-        new RegExp(`^COLLECTION PAPERASSE · AH26 · LOOK ${look.number}/03 · suivant\\b.*→$`, "iu"),
-      );
-
-      // Vrais liens : la marque renvoie au lookbook, le dernier lien va au look suivant.
-      const links = tag.getByRole("link");
-      expect(await links.count()).toBeGreaterThanOrEqual(1);
-      const nextLook = LOOKS[index + 1];
-      const expectedNext = nextLook === undefined ? BASE_PATH : `${BASE_PATH}${nextLook.slug}/`;
-      const next = links.last();
-      await expect(next).toHaveAttribute("href", expectedNext);
-
-      // Cousue en bas : rien de visible ne commence sous l'étiquette.
-      const tagTop = (await tag.boundingBox())?.y ?? 0;
-      const below = await page
-        .locator("main")
-        .evaluateAll(
-          (mains, top) =>
-            mains.filter((main) => main.getBoundingClientRect().bottom > top + 1).length,
-          tagTop,
-        );
-      expect(below, "le contenu principal ne doit pas passer sous l'étiquette").toBe(0);
-
-      await next.click();
-    }
-    await expect(page).toHaveURL(base.href);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Collection Paperasse");
+    await expect(page.getByRole("navigation", { name: "Collection" })).toHaveCount(0);
   });
 
   for (const look of LOOKS) {
@@ -884,32 +543,8 @@ test.describe("lookbook · tester", () => {
     }
   });
 
-  test("CSP · aucun attribut style dans le HTML construit, aucune violation CSP", async ({
-    page,
-    request,
-  }) => {
-    for (const path of ["", ...LOOKS.map((look) => `${look.slug}/`)]) {
-      const html = await (await request.get(path)).text();
-      const styleAttributes = [...html.matchAll(/<[^>]*\sstyle\s*=[^>]*>/giu)].map((m) => m[0]);
-      expect(styleAttributes, path || "lookbook").toEqual([]);
-    }
-    const violations: string[] = [];
-    await page.exposeFunction("reportCspViolation", (message: string) => {
-      violations.push(message);
-    });
-    await page.addInitScript(() => {
-      document.addEventListener("securitypolicyviolation", (event) => {
-        const report: unknown = Reflect.get(window, "reportCspViolation");
-        if (typeof report === "function") {
-          report(`${event.violatedDirective} ${event.blockedURI}`);
-        }
-      });
-    });
-    await page.goto("");
-    await page.waitForLoadState("networkidle");
-    for (const link of await page.getByRole("link").all()) await link.hover();
-    expect(violations).toEqual([]);
-  });
+  // « Aucun attribut style » et « aucune violation CSP » : vérifiés sur chaque page dans
+  // tests/e2e/collection.spec.ts.
 
   test("Perf · moins de 50 Ko de JS (gzip) sur la page", async ({ page }) => {
     let total = 0;
@@ -1039,7 +674,10 @@ test.describe("lookbook · tester", () => {
     expect(sheetFont).toMatch(/^"?JetBrains Mono/u);
   });
 
-  test("Design · seuls l'affiche et les aperçus penchent ; fiches, liens et post-its droits", async ({
+  // specs/lookbook.md (Design) : « Les inclinaisons s'appliquent aux aperçus, à l'affiche et aux
+  // post-its (comme sur la maquette). Les étiquettes kraft (fiches) et les boutons restent
+  // droits ». Tour 2 : le test exigeait des post-its droits, la spec a été précisée depuis.
+  test("Design · l'affiche, les aperçus et les post-its penchent ; fiches et boutons droits", async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1061,12 +699,18 @@ test.describe("lookbook · tester", () => {
         expect(Math.abs(await locator.evaluate(effectiveRotation))).toBeLessThan(0.01);
       }
     }
-    const footerTilts = await page
-      .getByRole("contentinfo")
-      .evaluate((footer) =>
-        [footer, ...footer.querySelectorAll("*")].map((node) => getComputedStyle(node).transform),
+    // Post-its : chaque note du pied de page (texte en Courier Prime) penche, légèrement.
+    const footer = page.getByRole("contentinfo");
+    const notes = footer.getByText(/Prochaine collection|Aucun cookie/u);
+    await expect(notes).toHaveCount(2);
+    for (const note of await notes.all()) {
+      const tilt = Math.abs(await note.evaluate(effectiveRotation));
+      expect(tilt, await note.innerText()).toBeGreaterThan(0.2);
+      expect(tilt, await note.innerText()).toBeLessThan(6);
+      expect(await note.evaluate((element) => getComputedStyle(element).fontFamily)).toMatch(
+        /^"?Courier Prime/u,
       );
-    expect(footerTilts.filter((transform) => transform !== "none")).toEqual([]);
+    }
   });
 
   test("Mouvement · en mouvement réduit, survoler ou focaliser une carte ne fait rien bouger", async ({

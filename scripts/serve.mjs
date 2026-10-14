@@ -4,10 +4,14 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = normalize(join(new URL("..", import.meta.url).pathname, "site"));
+// fileURLToPath décode les %20 et gère les lecteurs Windows, contrairement à URL.pathname.
+const root = normalize(join(fileURLToPath(new URL("..", import.meta.url)), "site"));
 const prefix = "/collection-paperasse/";
 const port = Number(process.env.PORT ?? 4321);
+// Boucle locale uniquement : ce serveur de test n'a rien à faire sur le réseau.
+const host = "127.0.0.1";
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -25,7 +29,7 @@ const types = {
 };
 
 createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", "http://localhost");
+  const url = new URL(req.url ?? "/", `http://${host}`);
   if (!url.pathname.startsWith(prefix)) {
     res.writeHead(302, { location: prefix }).end();
     return;
@@ -58,6 +62,6 @@ createServer(async (req, res) => {
   }
   res.writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" });
   createReadStream(file).pipe(res);
-}).listen(port, () => {
-  console.log(`site/ servi sur http://localhost:${port}${prefix}`);
+}).listen(port, host, () => {
+  console.log(`site/ servi sur http://${host}:${port}${prefix}`);
 });

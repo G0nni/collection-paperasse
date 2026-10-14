@@ -1,5 +1,5 @@
 import { baseFor } from "@paperasse/shared/config";
-import { LOOKS, type Look } from "@paperasse/shared/looks";
+import { LOOKS, formatLookNumber, type Look, type LookSlug } from "@paperasse/shared/looks";
 
 /** Espace insécable, à mettre avant « : ; ! ? » et à l'intérieur des guillemets. */
 const NBSP = String.fromCodePoint(0xa0);
@@ -20,22 +20,23 @@ export type LookContent = {
 };
 
 export type LookCard = LookContent & {
-  readonly slug: string;
+  readonly slug: LookSlug;
   readonly name: string;
   /** « Look 01 » : le numéro de défilé, toujours sur deux chiffres. */
   readonly label: string;
   readonly href: string;
-  /** Texte visible du lien. Garde « Look 0X » : le test e2e commun le cherche. */
+  /** Texte visible du lien. */
   readonly linkText: string;
   /** Nom accessible du lien : le texte visible, suivi du nom de l'app. */
   readonly linkLabel: string;
 };
 
 /**
- * Textes des fiches, indexés par slug. Les fiches défilé (Matière, Coupe, Prix) sont celles de
+ * Textes des fiches, indexés par slug : un look ajouté à la collection sans fiche est une
+ * erreur de compilation. Les fiches défilé (Matière, Coupe, Prix) sont celles de
  * specs/lookbook.md, mot pour mot.
  */
-export const LOOK_CONTENT: Readonly<Record<string, LookContent>> = {
+export const LOOK_CONTENT: Readonly<Record<LookSlug, LookContent>> = {
   "reunion-metre": {
     tagline: "Ce que coûte votre réunion, en direct. Un lien, tout le monde voit l'argent partir.",
     sheet: [
@@ -69,44 +70,12 @@ export const LOOK_CONTENT: Readonly<Record<string, LookContent>> = {
   },
 };
 
-/**
- * Textes fixes de la page (affiche et post-its). Regroupés ici pour que les tests vérifient
- * leur typographie et leur conformité à la spec. Les tableaux sont des lignes affichées
- * séparément ; jointes par une espace, elles redonnent la phrase de la spec.
- */
-export const PAGE_TEXT = {
-  title: "Collection Paperasse · Automne-Hiver 2026",
-  description: "Trois documents officiels. Aucune valeur. Zéro inscription.",
-  posterKicker: "Avis à la population",
-  posterTitle: ["Collection", "Paperasse"],
-  season: "Défilé Automne-Hiver 2026.",
-  rule: "Trois documents officiels. Aucune valeur. Zéro inscription.",
-  stamp: "Entrée libre",
-  looksHeading: "Les trois looks de la saison",
-  nextCollection: `Prochaine collection${NBSP}:`,
-  nextCollectionDetail: "bientôt. Peut-être. On a des chaussettes et un pigeon.",
-  privacy: ["Aucun cookie,", "aucun compte,", "aucun serveur."],
-  repoLink: "Le code sur GitHub",
-} as const;
-
-/** « 1 » → « 01 ». */
-export function formatLookNumber(lookNumber: number): string {
-  return String(lookNumber).padStart(2, "0");
-}
-
-/**
- * Assemble les cartes du lookbook. Lève une erreur si un look n'a pas de fiche : le site est
- * statique, l'erreur arrête donc le build au lieu de publier une carte vide.
- */
+/** Assemble les cartes du lookbook, dans l'ordre du défilé. */
 export function buildCatalog(looks: readonly Look[] = LOOKS): LookCard[] {
   return looks.map((look) => {
-    const content = LOOK_CONTENT[look.slug];
-    if (content === undefined) {
-      throw new Error(`Fiche manquante pour le look : ${look.slug}`);
-    }
     const label = `Look ${formatLookNumber(look.number)}`;
     return {
-      ...content,
+      ...LOOK_CONTENT[look.slug],
       slug: look.slug,
       name: look.name,
       label,

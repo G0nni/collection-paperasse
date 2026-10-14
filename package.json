@@ -9,13 +9,14 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "build": "pnpm --filter \"./apps/*\" build && node scripts/assemble.mjs",
+    "build:e2e": "node scripts/build-e2e.mjs",
     "check": "pnpm -r check && tsc -p tsconfig.json",
     "lint": "node scripts/check-invisible.mjs && eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
     "serve": "node scripts/serve.mjs",
-    "verify": "pnpm check && pnpm lint && pnpm test && pnpm build && pnpm test:e2e"
+    "verify": "pnpm check && pnpm lint && pnpm test && pnpm build:e2e && pnpm test:e2e"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

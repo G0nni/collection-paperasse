@@ -1,8 +1,9 @@
 import { COLLECTION_BASE } from "@paperasse/shared/config";
-import { LOOKS } from "@paperasse/shared/looks";
-import { describe, expect, it } from "vitest";
-import { buildCatalog, formatLookNumber, LOOK_CONTENT, PAGE_TEXT } from "./catalog";
-import { findTypographyIssues } from "./typography";
+import { LOOKS, type LookSlug } from "@paperasse/shared/looks";
+import { findTypographyIssues, formatTypographyIssue } from "@paperasse/shared/typography";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { buildCatalog, LOOK_CONTENT } from "./catalog";
+import { PAGE_TEXT } from "./page-text";
 
 const NON_BREAKING_SPACES = new RegExp(
   `[${String.fromCodePoint(0xa0)}${String.fromCodePoint(0x202f)}]`,
@@ -14,13 +15,10 @@ function normalizeSpaces(text: string): string {
   return text.replace(NON_BREAKING_SPACES, " ");
 }
 
-describe("formatLookNumber", () => {
-  it("écrit le numéro sur deux chiffres", () => {
-    expect(formatLookNumber(1)).toBe("01");
-    expect(formatLookNumber(3)).toBe("03");
-    expect(formatLookNumber(12)).toBe("12");
-  });
-});
+/** Fautes typographiques d'un texte, sous forme de messages lisibles. */
+function typographyErrors(text: string): string[] {
+  return findTypographyIssues(text).map(formatTypographyIssue);
+}
 
 describe("buildCatalog", () => {
   const catalog = buildCatalog();
@@ -35,7 +33,7 @@ describe("buildCatalog", () => {
   });
 
   // CA-1 : chaque lien mène à la bonne app, sous la base de la collection.
-  it("fait pointer chaque lien vers son app, sous la base de la collection", () => {
+  it("CA-1 · fait pointer chaque lien vers son app, sous la base de la collection", () => {
     expect(catalog.map((card) => card.href)).toEqual([
       "/collection-paperasse/reunion-metre/",
       "/collection-paperasse/jure-crache/",
@@ -47,13 +45,11 @@ describe("buildCatalog", () => {
     }
   });
 
-  it("garde « Look 0X » dans le texte du lien (le test e2e commun le cherche)", () => {
-    catalog.forEach((card, index) => {
-      expect(card.linkText).toContain(`Look 0${index + 1}`);
-      // Le nom accessible commence par le texte visible (WCAG 2.5.3, label dans le nom).
+  it("donne au lien un nom accessible qui commence par son texte visible (WCAG 2.5.3)", () => {
+    for (const card of catalog) {
       expect(card.linkLabel.startsWith(card.linkText)).toBe(true);
       expect(card.linkLabel).toContain(card.name);
-    });
+    }
   });
 
   it("reprend mot pour mot les fiches défilé de la spec", () => {
@@ -75,36 +71,41 @@ describe("buildCatalog", () => {
     ]);
   });
 
-  it("associe à chaque look l'aperçu de son document", () => {
+  it("associe à chaque look l'aperçu de son document, nommé pour les lecteurs d'écran", () => {
     expect(catalog.map((card) => card.preview)).toEqual(["ticket", "acte", "listing"]);
     for (const card of catalog) {
-      expect(card.previewLabel.length).toBeGreaterThan(10);
-      expect(card.tagline.length).toBeGreaterThan(10);
+      expect(card.previewLabel).toMatch(/^Aperçu\s?: /u);
     }
   });
 
-  it("a une fiche pour chaque look de la collection", () => {
+  it("donne à chaque look une accroche propre : des phrases complètes, courtes, distinctes", () => {
+    const taglines = catalog.map((card) => card.tagline);
+    expect(new Set(taglines).size).toBe(taglines.length);
+    for (const card of catalog) {
+      expect(card.tagline).toMatch(/^\p{Lu}.*\.$/u);
+      expect(card.tagline).not.toContain(card.name);
+      expect(card.tagline.length).toBeGreaterThanOrEqual(40);
+      expect(card.tagline.length).toBeLessThanOrEqual(120);
+    }
+  });
+
+  it("a une fiche pour chaque look de la collection, garantie par le type", () => {
+    expectTypeOf<keyof typeof LOOK_CONTENT>().toEqualTypeOf<LookSlug>();
     for (const look of LOOKS) {
-      expect(LOOK_CONTENT[look.slug]).toBeDefined();
+      expect(LOOK_CONTENT[look.slug].sheet).toHaveLength(3);
     }
-  });
-
-  it("arrête le build si un look n'a pas de fiche", () => {
-    expect(() => buildCatalog([{ number: 4, slug: "inconnu", name: "Inconnu" }])).toThrow(
-      /inconnu/,
-    );
   });
 });
 
 describe("textes de la page", () => {
   it("contient l'en-tête et le pied de page demandés par la spec", () => {
     expect(PAGE_TEXT.posterTitle.join(" ")).toBe("Collection Paperasse");
-    expect(PAGE_TEXT.season).toContain("Automne-Hiver 2026");
+    expect(PAGE_TEXT.season).toBe("Défilé Automne-Hiver 2026.");
     expect(PAGE_TEXT.rule).toBe("Trois documents officiels. Aucune valeur. Zéro inscription.");
     expect(PAGE_TEXT.privacy.join(" ")).toBe("Aucun cookie, aucun compte, aucun serveur.");
     expect(
       normalizeSpaces(`${PAGE_TEXT.nextCollection} ${PAGE_TEXT.nextCollectionDetail}`),
-    ).toMatch(/^Prochaine collection : bientôt\./);
+    ).toMatch(/^Prochaine collection : bientôt\./u);
   });
 
   it("respecte la typographie française partout (insécables, pas de tiret cadratin)", () => {
@@ -121,7 +122,7 @@ describe("textes de la page", () => {
       ]),
     ];
     for (const text of texts) {
-      expect(findTypographyIssues(text), text).toEqual([]);
+      expect(typographyErrors(text), text).toEqual([]);
     }
   });
 });

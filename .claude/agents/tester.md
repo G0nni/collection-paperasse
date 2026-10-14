@@ -31,7 +31,7 @@ fichiers de test (`*.test.ts` dans `src/`, et `tests/e2e/<look>/*.spec.ts`).
 
 ```bash
 pnpm --filter <look> test
-pnpm build && pnpm test:e2e --grep <look>
+pnpm build:e2e && pnpm test:e2e --grep <look>
 ```
 
 ## Ce que tu rends

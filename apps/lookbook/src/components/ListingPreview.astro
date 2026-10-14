@@ -6,6 +6,18 @@ import "@fontsource/courier-prime/700.css";
 type Props = { label: string };
 
 const { label } = Astro.props;
+
+/** Tickets du listing : intitulé, statut. Le premier est en critique. */
+const ROWS: readonly {
+  readonly ticket: string;
+  readonly status: string;
+  readonly critical?: true;
+}[] = [
+  { ticket: "#4021 Frigo vide", status: "Critique", critical: true },
+  { ticket: "#4023 Rappeler mamie", status: "Rouvert ×3" },
+  { ticket: "#4026 214 onglets", status: "Won't fix" },
+  { ticket: "#4027 Tupperware", status: "Diplomatique" },
+];
 ---
 
 <div class="listing" role="img" aria-label={label}>
@@ -13,22 +25,12 @@ const { label } = Astro.props;
   <span class="feed" aria-hidden="true"></span>
   <div class="sheet">
     <p class="brand">SAV de ta vie</p>
-    <p class="row">
-      <span>#4021 Frigo vide</span>
-      <strong class="critical">Critique</strong>
-    </p>
-    <p class="row">
-      <span>#4023 Rappeler mamie</span>
-      <span>Rouvert ×3</span>
-    </p>
-    <p class="row">
-      <span>#4026 214 onglets</span>
-      <span>Won't fix</span>
-    </p>
-    <p class="row">
-      <span>#4027 Tupperware</span>
-      <span>Diplomatique</span>
-    </p>
+    {ROWS.map((row) => (
+      <p class="row">
+        <span>{row.ticket}</span>
+        {row.critical ? <strong class="critical">{row.status}</strong> : <span>{row.status}</span>}
+      </p>
+    ))}
   </div>
   <span class="feed feed-right" aria-hidden="true"></span>
 </div>
@@ -55,7 +57,7 @@ const { label } = Astro.props;
   .feed {
     flex: 0 0 22px;
     border-right: 1px dashed #bdb7aa;
-    background: radial-gradient(circle, #c38f55 4px, transparent 4.6px) center 10px / 22px 20px
+    background: radial-gradient(circle, var(--cork) 4px, transparent 4.6px) center 10px / 22px 20px
       repeat-y;
   }
 

@@ -15,9 +15,18 @@ navigateur.
 
 ```bash
 pnpm install
-pnpm dev        # toutes les apps en dev
-pnpm verify     # check + lint + tests + build + e2e
+pnpm dev          # toutes les apps en dev
+pnpm build        # build de production (CSP limitée à https://g0nni.github.io/collection-paperasse/)
+pnpm build:e2e    # même build, CSP limitée au serveur de test http://127.0.0.1:4321/collection-paperasse/
+pnpm test:e2e     # e2e sur site/ : exige un site/ issu de pnpm build:e2e
+pnpm verify       # check + lint + tests + build:e2e + e2e
 ```
+
+La CSP n'autorise scripts, styles, polices et images que sous le préfixe de la collection. Ce
+préfixe est fixé au build par la variable `PAPERASSE_ORIGIN` (origine seule, sans chemin) :
+absente, c'est la production ; `pnpm build:e2e` la fixe à `http://127.0.0.1:$PORT` (4321 par
+défaut) pour que les e2e testent la vraie CSP. Le déploiement lance `pnpm build`, jamais
+`build:e2e`.
 
 Les règles du projet sont dans [`CLAUDE.md`](CLAUDE.md), la spec de chaque app dans [`specs/`](specs/).
 

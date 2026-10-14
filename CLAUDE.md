@@ -45,13 +45,14 @@ on corrige le code, ou on modifie la spec explicitement dans le même commit, en
 ```bash
 pnpm install
 pnpm dev --filter reunion-metre   # dev d'une app
-pnpm build                        # build toutes les apps puis assemble site/
+pnpm build                        # build de production (CSP limitée au préfixe Pages) + site/
+pnpm build:e2e                    # même build, CSP limitée à http://127.0.0.1:4321 (PAPERASSE_ORIGIN)
 pnpm check                        # astro check + tsc sur tout le monorepo
 pnpm lint                         # eslint + prettier --check
 pnpm test                         # vitest sur tout le monorepo
-pnpm test:e2e                     # playwright sur le site assemblé (après pnpm build)
+pnpm test:e2e                     # playwright sur site/ : exige pnpm build:e2e avant
 pnpm audit --prod                 # audit des dépendances
-pnpm verify                       # check + lint + test + build + test:e2e : la porte de sortie
+pnpm verify                       # check + lint + test + build:e2e + test:e2e : la porte de sortie
 ```
 
 ## Déploiement
@@ -74,6 +75,10 @@ Le modèle de menace est court mais sérieux : **quelqu'un forge un lien et l'en
   `new Function`** avec une donnée utilisateur. On écrit le texte avec `textContent`.
   ESLint l'interdit (`no-restricted-properties` / `no-restricted-syntax`).
 - Jamais de donnée utilisateur dans un `href`, un `src` ou un attribut `style`.
+- Config Astro commune : `lookConfig()` de `packages/shared/src/look-config.ts` (CSP, base,
+  `assetsInlineLimit: 0` pour que les petites polices ne soient pas inlinées en `data:`).
+  Scripts, styles, polices et images ne sont autorisés que sous le préfixe de la collection
+  (sur `g0nni.github.io`, `'self'` couvrirait tous les repos Pages du compte).
 - CSP activée via `security.csp` d'Astro (meta tag avec hashes). Conséquence : **pas d'attribut
   `style="…"` dans le HTML** ; les valeurs dynamiques passent par
   `element.style.setProperty('--var', …)` ou par des classes.

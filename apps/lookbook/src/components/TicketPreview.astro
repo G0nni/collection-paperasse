@@ -5,6 +5,15 @@ import "@fontsource/doto/900.css";
 type Props = { label: string };
 
 const { label } = Astro.props;
+
+const NBSP = String.fromCodePoint(0xa0);
+
+/** Lignes du ticket : poste facturé, montant. */
+const LINES: readonly (readonly [string, string])[] = [
+  ["Tour de table", "79,30"],
+  [`«${NBSP}Tu m'entends${NBSP}?${NBSP}»`, "34,69"],
+  ["Décisions prises", "0"],
+];
 ---
 
 <div class="ticket" role="img" aria-label={label}>
@@ -15,18 +24,12 @@ const { label } = Astro.props;
   </div>
   <div class="lines">
     <p class="heading">*** Ticket de réunion ***</p>
-    <p class="line">
-      <span>Tour de table</span>
-      <span>79,30</span>
-    </p>
-    <p class="line">
-      <span>«&nbsp;Tu m'entends&nbsp;?&nbsp;»</span>
-      <span>34,69</span>
-    </p>
-    <p class="line">
-      <span>Décisions prises</span>
-      <span>0</span>
-    </p>
+    {LINES.map(([item, amount]) => (
+      <p class="line">
+        <span>{item}</span>
+        <span>{amount}</span>
+      </p>
+    ))}
   </div>
 </div>
 

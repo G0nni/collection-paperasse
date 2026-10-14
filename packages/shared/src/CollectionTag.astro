@@ -1,19 +1,28 @@
 ---
-import { tagFor } from "./looks";
+// Étiquette de vêtement cousue en bas de chaque look (specs/lookbook.md, « Le CollectionTag »).
+// Texte affiché : COLLECTION PAPERASSE · AH26 · LOOK 01/03 · Suivant : Juré Craché →
+import { TAG_SEPARATOR, tagFor, type LookSlug } from "./looks";
 
-type Props = { slug: string };
+type Props = { slug: LookSlug };
 
-const { slug } = Astro.props;
-const tag = tagFor(slug);
+const tag = tagFor(Astro.props.slug);
 ---
 
 <nav class="collection-tag" aria-label="Collection">
-  <a class="brand" href={tag.lookbookHref}>
-    Collection Paperasse · AH26
+  <a class="brand" href={tag.brand.href}>
+    <span>{tag.brand.text}</span>
   </a>
-  <span class="look">{tag.label}</span>
-  <a class="next" href={tag.nextHref}>
-    {tag.nextLabel} <span aria-hidden="true">→</span>
+  <span class="separator" aria-hidden="true">
+    {TAG_SEPARATOR}
+  </span>
+  <span class="position">{tag.position}</span>
+  <span class="separator" aria-hidden="true">
+    {TAG_SEPARATOR}
+  </span>
+  <a class="next" href={tag.next.href}>
+    <span>
+      {tag.next.text} <span aria-hidden="true">→</span>
+    </span>
   </a>
 </nav>
 
@@ -25,36 +34,47 @@ const tag = tagFor(slug);
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem 1.25rem;
+    gap: 0 0.75rem;
     max-width: 40rem;
     margin: 3rem auto 1.5rem;
-    padding: 0.75rem 1.25rem;
+    padding: 0.5rem 1.25rem;
     background: var(--_bg);
     color: var(--_fg);
     font-family: ui-monospace, "JetBrains Mono", monospace;
     font-size: 0.8125rem;
     letter-spacing: 0.12em;
-    text-transform: uppercase;
     /* Points de couture : un pointillé à l'intérieur du bord. */
     outline: 1.5px dashed var(--_fg);
     outline-offset: -6px;
     border: 1px solid var(--_fg);
   }
 
+  /* La spec écrit la marque et le numéro en capitales, le lien « suivant » en casse normale. */
+  .brand,
+  .position {
+    text-transform: uppercase;
+  }
+
+  .position {
+    font-weight: 700;
+  }
+
   a {
-    color: inherit;
-    min-height: 44px;
     display: inline-flex;
     align-items: center;
+    min-height: 44px;
+    color: inherit;
     text-underline-offset: 0.25em;
   }
 
+  /* Survol et focus changent l'épaisseur du soulignement : jamais la couleur seule. */
   a:hover,
   a:focus-visible {
     text-decoration-thickness: 2px;
   }
 
-  .look {
-    font-weight: 700;
+  a:focus-visible {
+    outline: 2px solid var(--_fg);
+    outline-offset: 2px;
   }
 </style>

@@ -8,9 +8,15 @@
 1. **Configuration** (pas de paramètre `s` dans l'URL) : titre optionnel, tarif, participants,
    bouton « Lancer le compteur ».
 2. **Compteur** (`s` présent, `e` absent) : montant qui tourne, durée, nombre de personnes,
-   €/heure, tarif, liste des participants, ticket en cours à droite, bouton « Terminer ».
+   €/heure, tarif, liste des participants, ticket en cours à droite, boutons « Terminer » et
+   « Copier le lien du compteur » (c'est ce lien qu'on colle dans le chat de la réunion).
 3. **Ticket** (`s` et `e` présents) : montant figé, ticket de caisse complet, boutons « Copier le
-   lien du ticket » et « Nouvelle réunion ».
+   lien du ticket » et « Nouvelle réunion ». « Nouvelle réunion » rouvre la Configuration avec la
+   même équipe, le même tarif et le même titre ; l'URL perd `s` et `e` (nouvelle entrée
+   d'historique : Précédent rend le ticket), puis suit les modifications de la Configuration.
+- Après la lecture du lien, l'URL est réécrite sous sa forme propre (`replaceState`) : paramètres
+  inconnus, doublons, participants invalides et hash retirés. « Copier le lien » copie donc
+  toujours la forme propre.
 
 ## Format d'URL (fait foi)
 
@@ -65,7 +71,9 @@
 - **CA-5** Changer le tarif, ajouter/retirer un participant, ou modifier son libellé ou son taux
   pendant le Compteur met l'URL à jour
   et recalcule tout depuis `s` (le montant peut sauter, c'est voulu : « tarif rétroactif »).
-- **CA-6** « Terminer » ajoute `e = maintenant`, affiche le Ticket, et le montant ne bouge plus.
+- **CA-6** « Terminer » ajoute `e = maintenant`, borné à `[s + 1, s + 86 400]` pour que le lien du
+  ticket reste valide (clic dans la même seconde que le lancement, ou après 24 h), affiche le
+  Ticket, et le montant ne bouge plus.
 - **CA-7** « Copier le lien » copie l'URL courante complète ; confirmation visible et annoncée
   (`aria-live="polite"`) ; si l'API presse-papiers est refusée, le lien s'affiche dans un champ
   sélectionné.
@@ -85,14 +93,15 @@
   pas encore commencé. Profitez-en. »
 - **CL-2** Durée > 24 h sans `e` → le compteur s'arrête à 24 h et affiche « Réunion de plus de
   24 h. Respirez. »
-- **CL-3** `e ≤ s` → `e` ignoré.
+- **CL-3** `e ≤ s`, ou `e` > maintenant + 60 s (fin dans le futur) → `e` ignoré, avec message.
 - **CL-4** 31 paramètres `p` ou plus → on garde les 30 premiers + message.
 - **CL-5** Taux décimal, négatif, `1e3`, `NaN` ; `p` sans `|` ; libellé vide ou de plus de 40
   caractères après nettoyage → participant ignoré. Libellé avec du HTML → affiché tel quel, en texte.
 - **CL-11** Deux participants avec le même libellé → autorisé (deux Kevin, ça arrive).
 - **CL-6** Tous les taux à 0 → montant 0,00 € et message « Réunion bénévole. Suspect. »
 - **CL-7** Paramètres en double (`?t=A&t=C`) → on prend le premier.
-- **CL-8** Query de plus de 4 Ko → Configuration + message « Lien trop long ».
+- **CL-8** Query brute (encodée, avant tout décodage) de plus de 4 Ko → Configuration + message
+  « Lien trop long ». L'app refuse aussi une modification qui produirait un lien trop long.
 - **CL-9** Onglet en arrière-plan puis revenu → le montant est juste immédiatement (calcul depuis
   l'heure, jamais par incrément).
 - **CL-10** Horloge de l'appareil décalée : rien à faire, on l'assume ; le ticket indique « heure
@@ -101,8 +110,10 @@
 ## Modèle de menace
 
 - Textes libres : `n` (60 caractères) et les libellés des participants (40 caractères chacun,
-  30 au plus). Affichés en `textContent`, caractères de contrôle et bidirectionnels
-  (U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069) retirés, jamais transformés en lien.
+  30 au plus), longueurs comptées en points de code (pas de `maxlength`, qui compte en UTF-16).
+  Affichés en `textContent`, jamais transformés en lien. Caractères de contrôle et tous les
+  contrôles bidirectionnels (`\p{Bidi_Control}`, dont U+061C) retirés ; un texte sans aucun
+  caractère visible (que des U+200B, U+3164, U+2800…) est refusé comme vide.
 - Risque accepté : un lien forgé peut afficher un libellé trompeur (« Cliquez sur ce lien »). La
   parade est la longueur bornée et l'absence de lien cliquable ; on ne cherche pas à filtrer le
   sens des mots.
@@ -114,7 +125,13 @@
 - Fond `#16120E`, panneau `#211B15`, écran LED `#0B0907`, ambre `#FFB000`, ambre fantôme
   `rgba(255,176,0,0.09)`, texte `#F3E9D6`, labels `#A8977A`, papier ticket `#FAFAF7`, encre
   ticket `#1A1714`.
-- Polices (fontsource) : Doto 900 pour tous les chiffres ; Archivo (variable, largeur 80 %) pour
+- Afficheur : « € » en petit **avant** le montant, façon taximètre (« € 247,80 », comme sur la
+  maquette), et U+00A0 comme séparateur de milliers (Doto n'a pas U+202F). Le ticket, lui, suit
+  exactement `Intl.NumberFormat('fr-FR', …)` (« 247,80 € »).
+- Messages du Compteur (CL-2, CL-6, notices du lien) : ils ne doivent jamais faire passer la liste
+  de 8 participants en défilement à 1280×720 (CA-11 vaut avec les messages affichés).
+- Polices (fontsource) : Doto 900 pour tous les chiffres hors ticket (montant, durée, personnes,
+  €/heure, taux) ; Archivo (variable, largeur 80 %) pour
   les labels en capitales espacées ; JetBrains Mono pour le ticket.
 - Modules signature : afficheur LED avec chiffres fantômes ; enseigne « OCCUPÉ / LIBRE » façon
   lumineux de taxi (c'est le bouton Lancer/Terminer) ; ticket thermique à bord dentelé avec
@@ -127,3 +144,6 @@
   plutôt que d'avoir des compteurs qui divergent.
 - Participants libres (libellé + taux), validé par Gonni le 14/10/2026. Les rôles drôles restent
   proposés comme suggestions.
+- Décisions de l'orchestrateur après le tour 1 (à confirmer) : bouton « Copier le lien du
+  compteur », borne de `e` à la fin, URL réécrite sous forme propre, « Nouvelle réunion » qui garde
+  l'équipe, « € » avant le montant sur l'afficheur, `e` futur refusé, libellés invisibles refusés.

@@ -86,7 +86,8 @@ Le modèle de menace est court mais sérieux : **quelqu'un forge un lien et l'en
   (`idle`, `load`, `media`, `only`, `visible`), sans option pour les retirer. Ils sont tolérés ;
   les tests les acceptent via une liste blanche calculée depuis `astro/runtime/client/*.prebuilt.js`,
   tout autre hash fait échouer les tests.
-- Taille max du hash/query décodé : 4 Ko. Au-delà, on refuse proprement.
+- Taille max du hash/query **brut** (encodé, mesuré avant tout décodage) : 4 Ko. Au-delà, on
+  refuse proprement.
 - localStorage : lecture dans un `try/catch`, données validées comme une URL, versionnées
   (`{ v: 1, … }`), avec migration ou remise à zéro si la version est inconnue.
 - Pas de dépendance ajoutée sans raison écrite dans le message de commit.

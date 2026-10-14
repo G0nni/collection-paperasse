@@ -38,24 +38,14 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
         <span class="pin pin-blue" aria-hidden="true"></span>
         <p class="kicker">{PAGE_TEXT.posterKicker}</p>
         <span class="rule" aria-hidden="true"></span>
-        <h1>
-          {PAGE_TEXT.posterTitle.map((word, index) => (
-            <>
-              {index > 0 && " "}
-              <span class="title-line">{word}</span>
-            </>
-          ))}
-        </h1>
-        <p class="season">
-          <span class="season-line">{PAGE_TEXT.season}</span>{" "}
-          <span class="season-line">{PAGE_TEXT.rule}</span>
-        </p>
+        <h1>{PAGE_TEXT.posterTitle.join(" ")}</h1>
+        <p class="season">{`${PAGE_TEXT.season} ${PAGE_TEXT.rule}`}</p>
         <span class="stamp" aria-hidden="true">
           {PAGE_TEXT.stamp}
         </span>
       </header>
 
-      <main>
+      <main class="catalog">
         <h2 class="visually-hidden">{PAGE_TEXT.looksHeading}</h2>
         {/* role="list" : Safari retire la sémantique de liste quand les puces sont masquées. */}
         <ol class="looks" role="list">
@@ -67,8 +57,11 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
                 </div>
                 <div class="label">
                   <span class="hole" aria-hidden="true" />
-                  <p class="number">{card.label}</p>
-                  <h3 id={`${card.slug}-title`}>{card.name}</h3>
+                  {/* Numéro et nom sur la même ligne (spec, Design), repliés si la place manque. */}
+                  <div class="label-head">
+                    <p class="number">{card.label}</p>
+                    <h3 id={`${card.slug}-title`}>{card.name}</h3>
+                  </div>
                   <p class="tagline">{card.tagline}</p>
                   <dl class="sheet">
                     {card.sheet.map((entry) => (
@@ -91,6 +84,8 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
         </ol>
       </main>
 
+      {/* Après les looks dans le HTML (lecture et tabulation, CA-7), même si ≥ 1000 px les
+          post-its s'affichent de part et d'autre de l'affiche. */}
       <footer class="notes">
         <div class="note note-yellow">
           <p>
@@ -151,13 +146,30 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
 </style>
 
 <style>
+  /* Disposition (specs/lookbook.md, « Disposition ») : une colonne sous 640 px, deux de 640 à
+     999 px, puis à partir de 1000 px les post-its encadrent l'affiche et les trois looks sont
+     côte à côte. Les seuils sont ceux de la maquette « tout sur un écran (1280×720) ». */
   .board {
-    display: flex;
-    flex-direction: column;
-    gap: 3.5rem;
-    max-width: 1180px;
+    --board-gap-x: 20px;
+    --board-pad-x: clamp(1rem, 2.5vw, 1.5rem);
+
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "poster"
+      "looks"
+      "notes";
+    gap: 2.25rem var(--board-gap-x);
+    align-content: center;
+    box-sizing: border-box;
+    width: 100%;
+    /* 1232 px : toute la largeur utile à 1280 px, pour que numéro et nom tiennent sur une ligne
+       dans chaque fiche (la maquette s'arrête à 1180 px, mais avec des numéros à 26 px). */
+    max-width: calc(1232px + 2 * var(--board-pad-x));
+    min-height: 100vh;
+    min-height: 100svh;
     margin: 0 auto;
-    padding: 2.5rem clamp(1rem, 2.5vw, 2.5rem) 4rem;
+    padding: 1.25rem var(--board-pad-x) 2rem;
     /* Les documents inclinés débordent de quelques pixels : on rogne sans créer de défilement. */
     overflow-x: clip;
   }
@@ -174,41 +186,42 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     border: 0;
   }
 
-  /* Affiche « Avis à la population » */
+  /* Affiche « Avis à la population » : un bandeau compact (environ 160 px à 1280 px). */
 
   .poster {
+    grid-area: poster;
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.875rem;
-    align-self: center;
+    gap: 0.5rem;
     box-sizing: border-box;
-    width: min(100%, 860px);
-    padding: clamp(28px, 5vw, 56px) clamp(20px, 5vw, 64px) 36px;
+    width: 100%;
+    /* Marge basse : le tampon s'y loge sans mordre sur la dernière ligne de texte. */
+    padding: 1rem clamp(1rem, 3vw, 1.75rem) 1.75rem;
     background: var(--poster);
     text-align: center;
-    transform: rotate(-1deg);
+    transform: rotate(-0.8deg);
     box-shadow:
       0 2px 0 rgb(0 0 0 / 0.08),
-      0 22px 40px rgb(var(--shadow) / 0.35);
+      0 18px 32px rgb(var(--shadow) / 0.35);
   }
 
   .pin {
     position: absolute;
-    top: 14px;
-    width: 18px;
-    height: 18px;
+    top: 10px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     box-shadow: 2px 3px 3px rgb(0 0 0 / 0.35);
   }
 
   .pin-red {
-    left: 22px;
+    left: 14px;
     background: radial-gradient(circle at 35% 30%, #ff8a80, var(--stamp-red) 70%);
   }
 
   .pin-blue {
-    right: 22px;
+    right: 14px;
     background: radial-gradient(circle at 35% 30%, #82b1ff, #1f4fb8 70%);
   }
 
@@ -219,7 +232,7 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
   .kicker {
     /* Laisse la place aux punaises sur les petits écrans. */
     padding-inline: 1.5rem;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.4em;
     text-transform: uppercase;
@@ -227,7 +240,7 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
 
   .rule {
     display: block;
-    height: 4px;
+    height: 3px;
     border-top: 2px solid var(--ink);
     border-bottom: 1px solid var(--ink);
   }
@@ -235,44 +248,44 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
   h1 {
     margin: 0;
     font-family: "Alfa Slab One", serif;
-    font-size: clamp(2.75rem, 8vw, 6rem);
+    font-size: clamp(2.125rem, 4.4vw, 3.5rem);
     font-weight: 400;
-    line-height: 0.95;
+    line-height: 1;
     letter-spacing: -0.01em;
   }
 
-  .title-line,
-  .season-line,
-  .note-line {
-    display: block;
-  }
-
+  /* 13 px : saison et règle tiennent sur une ligne dans le bandeau à 1280 px. */
   .season {
-    font-size: 1.0625rem;
-    line-height: 1.5;
+    font-size: 0.8125rem;
+    line-height: 1.45;
   }
 
   .stamp {
     position: absolute;
-    right: clamp(8px, 4vw, 40px);
-    bottom: -22px;
-    padding: 6px 14px;
+    right: clamp(8px, 2vw, 22px);
+    bottom: -20px;
+    padding: 4px 10px;
     border: 3px solid var(--stamp-red);
     border-radius: 6px;
     background: rgb(255 255 255 / 0.35);
     color: var(--stamp-red);
     font-family: "Alfa Slab One", serif;
-    font-size: 1.25rem;
+    font-size: 1rem;
     text-transform: uppercase;
-    transform: rotate(-12deg);
+    transform: rotate(-10deg);
   }
 
   /* Les trois looks */
 
+  .catalog {
+    grid-area: looks;
+    min-width: 0;
+  }
+
   .looks {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 3rem 1.75rem;
+    gap: 2.25rem 1.5rem;
     align-items: start;
     width: 100%;
     max-width: 34rem;
@@ -281,34 +294,31 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     list-style: none;
   }
 
-  @media (min-width: 960px) {
-    .looks {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      max-width: none;
-    }
-  }
-
   article {
     display: flex;
     flex-direction: column;
-    gap: 1.375rem;
+    gap: 0.75rem;
   }
 
-  /* Seuls les aperçus sont de travers : la fiche et le lien restent droits pour la lecture. */
+  /* Seuls les aperçus sont de travers : la fiche et le lien restent droits pour la lecture.
+     Hauteur commune pour que les étiquettes s'alignent ; c'est elle qu'on réduit en premier
+     quand la place manque, jamais les fiches. */
   .preview {
+    display: grid;
+    min-height: 9.5rem;
     transform: rotate(var(--tilt, 0deg));
   }
 
   .preview-ticket {
-    --tilt: -2.5deg;
+    --tilt: -2deg;
   }
 
   .preview-acte {
-    --tilt: 1.8deg;
+    --tilt: 1.5deg;
   }
 
   .preview-listing {
-    --tilt: -1.2deg;
+    --tilt: -1deg;
   }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -328,8 +338,8 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.625rem;
-    padding: 1.125rem 1.25rem 1.25rem 2.75rem;
+    gap: 0.5rem;
+    padding: 0.875rem 0.875rem 1rem 2.25rem;
     border-radius: 6px;
     background: var(--kraft);
     box-shadow: 0 6px 14px rgb(var(--shadow) / 0.25);
@@ -337,10 +347,10 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
 
   .hole {
     position: absolute;
-    top: 22px;
-    left: 16px;
-    width: 12px;
-    height: 12px;
+    top: 20px;
+    left: 14px;
+    width: 11px;
+    height: 11px;
     border-radius: 50%;
     background: var(--cork);
     box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.4);
@@ -351,6 +361,13 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     margin: 0;
   }
 
+  .label-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.5rem;
+  }
+
   /* Orange des numéros réservé au très grand corps (≥ 34 px) : contraste 3:1 sur le kraft. */
   .number {
     color: var(--look-number);
@@ -358,26 +375,27 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     font-size: 2.125rem;
     line-height: 1;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
   h3 {
     font-family: "Alfa Slab One", serif;
-    font-size: 1.625rem;
+    font-size: 1.1875rem;
     font-weight: 400;
     line-height: 1.15;
   }
 
   .tagline {
     font-size: 0.875rem;
-    line-height: 1.45;
+    line-height: 1.4;
   }
 
   .sheet {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 0.25rem 0.75rem;
+    gap: 0.1875rem 0.75rem;
     margin: 0;
-    padding-top: 0.625rem;
+    padding-top: 0.5rem;
     border-top: 1px solid var(--ink);
     font-size: 0.8125rem;
   }
@@ -404,7 +422,8 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     align-items: center;
     align-self: flex-start;
     min-height: 44px;
-    padding: 0 1.125rem;
+    margin-top: 0.25rem;
+    padding: 0 1rem;
     background: var(--ink);
     color: var(--poster);
     font-size: 0.875rem;
@@ -417,28 +436,29 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     text-decoration: underline;
   }
 
-  /* Post-its du pied de page : inclinés et en Courier Prime, comme sur la maquette. */
+  /* Post-its : inclinés et en Courier Prime, comme sur la maquette. */
 
   .notes {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-    gap: 1.75rem;
+    grid-area: notes;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    align-items: start;
+    gap: 1.75rem var(--board-gap-x);
   }
 
   .note {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.25rem;
     box-sizing: border-box;
-    width: 220px;
-    min-height: 160px;
-    padding: 1.25rem;
+    width: min(100%, 240px);
+    min-height: 124px;
+    padding: 0.875rem 1rem;
     box-shadow: 0 10px 18px rgb(var(--shadow) / 0.3);
     font-family: "Courier Prime", monospace;
-    font-size: 1.0625rem;
-    line-height: 1.35;
+    font-size: 0.9375rem;
+    line-height: 1.3;
     transform: rotate(var(--tilt, 0deg));
   }
 
@@ -446,13 +466,17 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     margin: 0;
   }
 
+  .note-line {
+    display: block;
+  }
+
   .note-yellow {
-    --tilt: -2deg;
+    --tilt: -3deg;
     background: var(--poster);
   }
 
   .note-blue {
-    --tilt: 1.5deg;
+    --tilt: 2.5deg;
     background: var(--postit-blue);
   }
 
@@ -470,5 +494,67 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
   .repo:hover {
     color: var(--stamp-red);
     text-decoration-thickness: 3px;
+  }
+
+  /* 640 à 999 px : looks sur deux colonnes (le 3e seul sur la ligne suivante), post-its côte à
+     côte sous les looks. */
+  @media (min-width: 640px) {
+    .looks {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      max-width: none;
+    }
+
+    .notes {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  /* À partir de 1000 px : l'affiche devient un bandeau centré entre les deux post-its, titre
+     sur une ligne, et les trois looks tiennent sous elle, sans défilement à 1280×720 (CA-6). */
+  @media (min-width: 1000px) {
+    .board {
+      grid-template-columns: 190px minmax(0, 1fr) 190px;
+      grid-template-areas:
+        "left poster right"
+        "looks looks looks";
+      row-gap: 26px;
+      align-items: center;
+      padding-block: 20px;
+    }
+
+    .poster {
+      justify-self: center;
+      max-width: 760px;
+    }
+
+    h1 {
+      white-space: nowrap;
+    }
+
+    .looks {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    /* Le pied de page occupe toute la première ligne et reprend les colonnes de la grille
+       (subgrid) : jaune à gauche de l'affiche, bleu à droite. Sa colonne du milieu reste vide ;
+       l'affiche, positionnée, est peinte au-dessus. */
+    .notes {
+      grid-row: 1;
+      grid-column: 1 / -1;
+      grid-template-columns: subgrid;
+      align-items: center;
+    }
+
+    .note {
+      width: 100%;
+    }
+
+    .note-yellow {
+      grid-column: 1;
+    }
+
+    .note-blue {
+      grid-column: 3;
+    }
   }
 </style>

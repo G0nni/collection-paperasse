@@ -1,66 +1,52 @@
-# Rapport reunion-metre · tour 1
+# Rapport reunion-metre · tour 2
 
 ## Verdict
 
-**Pas fini.** 1 bloquant (reviewer : CA-11 casse dès qu'un message s'affiche), 0 critique ou élevé
-(security : 2 moyens dans le nettoyeur de texte partagé). 3 tests e2e en échec, tous sur CA-11.
+**Pas fini.** 1 bloquant (reviewer : le repli de copie flotte sur le ticket à 1093×614 et 960×600,
+masque le Total et ne se ferme pas), 0 critique ou élevé (security : 3 moyens). 2 tests e2e en
+échec. Tous les points du tour 1 sont fermés, dont le bloquant CA-11 (pire cas tenu à 1280×720).
 
-Décisions de l'orchestrateur à l'issue du tour (spec et CLAUDE.md, commit « rapport tour 1 ») :
+Décisions de l'orchestrateur à l'issue du tour (spec et CLAUDE.md, commit « rapport tour 2 ») :
 
-- Écran Compteur : bouton « Copier le lien du compteur » acté.
-- CA-6 : `e` borné à `[s + 1, s + 86 400]` à la fin, pour que le lien du ticket reste valide.
-- URL réécrite sous forme propre après lecture (paramètres inconnus, doublons, invalides, hash).
-- « Nouvelle réunion » garde équipe, tarif et titre ; URL sans `s`/`e` puis suit la Configuration.
-- CL-3 : `e` dans le futur (> maintenant + 60 s) ignoré avec message.
-- CL-8 et CLAUDE.md : 4 Ko mesurés sur la query brute, avant décodage.
-- Afficheur : « € » avant le montant (maquette) et U+00A0 en séparateur ; ticket en Intl strict.
-- Messages du Compteur comptés dans CA-11 ; Doto pour tous les chiffres hors ticket.
-- Textes libres : `\p{Bidi_Control}` retiré (dont U+061C), texte sans caractère visible refusé,
-  longueurs en points de code (pas de `maxlength`).
+- Repli de copie dans un `<dialog>` modal (champ sélectionné, Fermer, Échap, focus rendu) ; statut
+  « Lien copié » à côté du bouton, jamais par-dessus le ticket.
+- Lien de version inconnue non réécrit ; forme propre de plus de 4 Ko refusée.
+- Notices : affichées jusqu'à Fermer ou changement d'écran, non réaffichées au rechargement.
+- CA-11 : une erreur de saisie en cours peut faire défiler la liste dans son cadre ; les messages
+  ne doivent jamais masquer une ligne du ticket sans moyen de la lire.
+- CL-3 : `e` sans `s` valide ignoré avec message.
+- `sanitizeText` (partagé) : U+FFFC refusé comme invisible, marques combinantes réduites à 4,
+  ordre retrait → NFC → trim ; conteneurs de texte libre qui coupent le débordement (CLAUDE.md).
 
 ## Tester
 
-CA-1 à CA-10 et CL-1 à CL-11 couverts et verts (747 e2e sur toute la collection, 145 unitaires
-dont 20 000 liens hostiles au hasard et toutes les sommes de ticket de 0 à 2 000 €).
+876 e2e passent, 2 échouent. Les 3 échecs CA-11 du tour 1 passent pour de bonnes raisons ; les
+deux modifications de ses tests par le builder sont justifiées (CL-3, ligne 96).
 
-| ID | Statut |
+| ID / décision | Statut |
 | -- | -- |
-| CA-1 à CA-10 | ✅ |
-| CA-11 sans message (1, 5, 8 participants ; 12 et 30 en défilement interne) | ✅ |
-| CA-11 avec 8 participants + un message (CL-6, CL-2, notice du lien) | ❌ 3 |
-| CL-1 à CL-11, menace (bidi, HTML, URL non cliquable), CLAUDE.md (axe, 360 px, typo, 44 px, JS) | ✅ |
+| CA-1 à CA-11, CL-1 à CL-11, cumul maximal de messages | ✅ |
+| URL propre, Nouvelle réunion, `e` futur, plus de `maxlength`, Doto, invisibles et bidi | ✅ |
+| Repli de copie à 1280×720 | ✅ |
+| Repli de copie à 1093×614 et 960×600 (Total masqué, pas de fermeture) | ❌ 2 |
 | Lighthouse | ⚠️ non testable ici |
-
-Trous de spec relevés et tranchés ci-dessus : libellés invisibles, `e` futur, messages et CA-11,
-`maxlength` en UTF-16, mesure des 4 Ko. Reste : `v` absent avec seulement des paramètres
-étrangers (Configuration vierge sans message, jugé acceptable).
 
 ## Reviewer
 
-- **[Bloquant]** CA-11 : la liste n'a aucune marge à 8 participants ; un message (≈ 46 px) la fait
-  défiler. Sortir les messages du flux vertical (alertes sur la ligne de l'afficheur, notices
-  refermables, stats à droite de l'afficheur) + test du pire cas (8 + CL-2 + CL-6 + notice).
-- [Important] `#form-error` sans région live : erreurs non annoncées.
-- [Important] Décision « participants valides / lien assez court » codée trois fois dans `app.ts`
-  sans test → fonction pure `proposeMeeting` dans `lib/drafts.ts`.
-- [Important] Bloc « mettre à jour la réunion » dupliqué → `updateMeeting(next)`.
-- [Important] Lignes du ticket reconstruites chaque seconde (lecteur d'écran perd sa position) →
-  construire une fois, ne mettre à jour que les montants.
-- [Important] `whenText` (formatage) dans le module DOM, branche « autre jour » non testée.
-- Mineurs : calculs constants refaits à chaque tick, `launch` qui interroge le DOM, double
-  `refreshRows`, réannonce de la copie, `ParsedLink.screen` inutilisé, type discriminé pour
-  `Meeting`, code mort dans `drafts.ts`, tarif B en dur, règle « masqué visuellement » triplée,
-  chiffres hors Doto. Découpage de `app.ts` (540 lignes) après ces corrections.
+- **[Bloquant]** Repli de copie en superposition, non refermable : le passer dans un `<dialog>`.
+- [Important] « Lien copié » reste affiché sans limite sur le ticket : le sortir de la pile.
+- [Important] `v` inconnu : la réécriture efface le lien (perdu à la première montée de version).
+- Mineurs : `showProposalError` partagé, `goTo(next, { push, focus })` pour les 3 transitions,
+  `launch` qui lit encore le DOM, `ParsedLink.screen` et `firstId` inutilisés, `e` sans `s`
+  silencieux, ticket qui déborde de 4 à 18 px sans élément focalisable.
 
 ## Security
 
-Aucun point critique ou élevé. CSP effective conforme (script sous le préfixe, 5 hashes Astro
-connus, rien d'autre), aucun puits dangereux, pas de pollution de prototype, ticker sans fuite,
-0 vulnérabilité.
+Aucun point critique ou élevé. M2 du tour 1 (bidi) corrigé ; M1 corrigé pour les 17 caractères.
 
-- **Moyen M1** : libellé ou titre entièrement invisible accepté (17 caractères testés) :
-  « participant fantôme » à 1000 €/h. Exiger au moins un caractère visible dans `sanitizeText`.
-- **Moyen M2** : U+061C (ALM) contourne le retrait bidi et inverse l'affichage d'un titre. Utiliser
-  `\p{Bidi_Control}`.
-- Info : copie du lien non normalisée (réécriture `replaceState` proposée, actée) ; `e` futur
-  accepté (acté : refusé) ; entiers non canoniques (`v=01`) acceptés, sans conséquence.
+- **Moyen M1 bis** : U+FFFC passe `VISIBLE_CHAR` et ne s'affiche pas dans Chromium.
+- **Moyen M2 bis** : la forme propre peut dépasser 4 Ko (`%FF` → `%EF%BF%BD`) : le lien copié est
+  refusé au rechargement.
+- **Moyen M3** : marques combinantes dessinées en largeur : un libellé peut barrer son propre montant
+  et le titre peut élargir la page à 360 px.
+- Info : NFC avant retrait rend la forme propre instable (retirer, puis NFC, puis trim).

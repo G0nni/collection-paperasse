@@ -16,7 +16,14 @@
    d'historique : Précédent rend le ticket), puis suit les modifications de la Configuration.
 - Après la lecture du lien, l'URL est réécrite sous sa forme propre (`replaceState`) : paramètres
   inconnus, doublons, participants invalides et hash retirés. « Copier le lien » copie donc
-  toujours la forme propre.
+  toujours la forme propre. Exceptions : un lien d'une version inconnue (`v` ≠ 1) n'est **pas**
+  réécrit (il peut venir d'une version plus récente du site, il ne doit pas être perdu) ; une forme
+  propre de plus de 4 Ko est refusée comme un lien trop long.
+- Les messages du lien (notices) s'affichent jusqu'à « Fermer » ou au changement d'écran. Recharger
+  la forme propre ne les réaffiche pas : elle ne contient plus rien d'invalide.
+- Repli de copie (presse-papiers refusé) : un `<dialog>` modal avec le champ « Lien à copier »
+  sélectionné, un bouton « Fermer », Échap pour fermer, et le focus rendu au bouton de copie. Le
+  statut « Lien copié » s'affiche à côté du bouton, jamais par-dessus le ticket.
 
 ## Format d'URL (fait foi)
 
@@ -93,7 +100,8 @@
   pas encore commencé. Profitez-en. »
 - **CL-2** Durée > 24 h sans `e` → le compteur s'arrête à 24 h et affiche « Réunion de plus de
   24 h. Respirez. »
-- **CL-3** `e ≤ s`, ou `e` > maintenant + 60 s (fin dans le futur) → `e` ignoré, avec message.
+- **CL-3** `e ≤ s`, ou `e` > maintenant + 60 s (fin dans le futur), ou `e` sans `s` valide → `e`
+  ignoré, avec message.
 - **CL-4** 31 paramètres `p` ou plus → on garde les 30 premiers + message.
 - **CL-5** Taux décimal, négatif, `1e3`, `NaN` ; `p` sans `|` ; libellé vide ou de plus de 40
   caractères après nettoyage → participant ignoré. Libellé avec du HTML → affiché tel quel, en texte.
@@ -113,7 +121,10 @@
   30 au plus), longueurs comptées en points de code (pas de `maxlength`, qui compte en UTF-16).
   Affichés en `textContent`, jamais transformés en lien. Caractères de contrôle et tous les
   contrôles bidirectionnels (`\p{Bidi_Control}`, dont U+061C) retirés ; un texte sans aucun
-  caractère visible (que des U+200B, U+3164, U+2800…) est refusé comme vide.
+  caractère visible (que des U+200B, U+3164, U+2800, U+FFFC…) est refusé comme vide. Plus de 4
+  marques combinantes consécutives (`\p{M}`) sont réduites à 4 (texte « zalgo » qui s'étale sur
+  les lignes voisines) ; le vietnamien, le thaï, le devanagari et les emoji keycap restent intacts.
+  Ordre : retrait des caractères interdits, puis NFC, puis trim (la forme propre est stable).
 - Risque accepté : un lien forgé peut afficher un libellé trompeur (« Cliquez sur ce lien »). La
   parade est la longueur bornée et l'absence de lien cliquable ; on ne cherche pas à filtrer le
   sens des mots.
@@ -129,7 +140,9 @@
   maquette), et U+00A0 comme séparateur de milliers (Doto n'a pas U+202F). Le ticket, lui, suit
   exactement `Intl.NumberFormat('fr-FR', …)` (« 247,80 € »).
 - Messages du Compteur (CL-2, CL-6, notices du lien) : ils ne doivent jamais faire passer la liste
-  de 8 participants en défilement à 1280×720 (CA-11 vaut avec les messages affichés).
+  de 8 participants en défilement à 1280×720 (CA-11 vaut avec les messages affichés), ni masquer
+  une ligne du ticket sans moyen de la rendre lisible. Une erreur de saisie en cours peut faire
+  défiler la liste dans son cadre (le montant reste visible).
 - Polices (fontsource) : Doto 900 pour tous les chiffres hors ticket (montant, durée, personnes,
   €/heure, taux) ; Archivo (variable, largeur 80 %) pour
   les labels en capitales espacées ; JetBrains Mono pour le ticket.

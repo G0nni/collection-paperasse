@@ -8,7 +8,8 @@
 - En-tête : « Collection Paperasse », « Automne-Hiver 2026 », la règle de la saison : « Trois
   documents officiels. Aucune valeur. Zéro inscription. »
 - Trois cartes « Look 01 / 02 / 03 », chacune avec : nom de l'app, une phrase d'accroche, une
-  fiche façon défilé (Matière, Coupe, Prix), un aperçu statique (capture ou illustration SVG),
+  fiche façon défilé (Matière, Coupe, Prix), un aperçu statique en HTML/CSS (une miniature du document du look, `role="img"` avec un nom
+  accessible),
   un lien vers l'app.
   - Look 01 · Réunion-mètre · Matière : papier thermique 80 mm · Coupe : en temps réel · Prix :
     0 € (mais la réunion, elle, coûte cher)
@@ -21,15 +22,21 @@
 
 ## Le `CollectionTag` (composant partagé, `packages/shared`)
 
-Une étiquette de vêtement cousue en bas de chaque look :
-« COLLECTION PAPERASSE · AH26 · LOOK 02/03 · suivant → ». Elle s'adapte au fond de chaque look
-via deux custom properties (`--tag-bg`, `--tag-fg`) et reste un vrai `<nav aria-label="Collection">`
-avec des liens. Le dernier look renvoie au lookbook.
+Une étiquette de vêtement cousue en bas de chaque look (pas sur le lookbook, qui est la racine).
+Texte exact, avec des « · » visibles entre les blocs :
+
+- looks 01 et 02 : `COLLECTION PAPERASSE · AH26 · LOOK 01/03 · Suivant : Juré Craché →`
+- look 03 : `COLLECTION PAPERASSE · AH26 · LOOK 03/03 · Retour au lookbook →`
+
+« Collection Paperasse · AH26 » est un lien vers le lookbook, le dernier bloc est un lien vers le
+look suivant. Espace insécable avant « : ». L'étiquette s'adapte au fond de chaque look via deux
+custom properties (`--tag-bg`, `--tag-fg`) et reste un vrai `<nav aria-label="Collection">`.
 
 ## Critères d'acceptation
 
 - **CA-1** Les trois liens mènent aux bonnes apps, en respectant `BASE_URL`.
-- **CA-2** À 360 px, les cartes s'empilent ; à partir de 960 px, trois colonnes.
+- **CA-2** En dessous de 960 px, les cartes s'empilent sur une colonne ; à partir de 960 px, trois
+  colonnes.
 - **CA-3** Aucune ressource externe chargée (vérifié en e2e par interception réseau).
 - **CA-4** Axe : zéro violation.
 - **CA-5** Chaque look affiche un `CollectionTag` correct (testé depuis le lookbook en suivant
@@ -50,8 +57,9 @@ l'affiche « Avis à la population » et les trois documents de la collection.
   un tampon ENTRÉE LIBRE ; chaque look = un aperçu de son document (ticket, acte, listing)
   punaisé ou scotché de travers, et en dessous une étiquette kraft trouée avec la fiche défilé ;
   post-its en pied de page.
-- Les inclinaisons ne s'appliquent qu'aux aperçus et à l'affiche. Les fiches et les liens
-  restent droits, pour la lisibilité.
+- Les inclinaisons s'appliquent aux aperçus, à l'affiche et aux post-its (comme sur la maquette).
+  Les étiquettes kraft (fiches) et les boutons restent droits, pour la lisibilité. Les post-its
+  sont en Courier Prime, comme sur la maquette.
 - Maquette de référence : canvas Design « Projets débiles », artboard « Lookbook · Collection
   Paperasse (avis à la population) ».
 

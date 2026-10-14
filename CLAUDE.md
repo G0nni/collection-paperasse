@@ -59,7 +59,9 @@ pnpm verify                       # check + lint + test + build + test:e2e : la 
 GitHub Pages, un seul déploiement. `scripts/assemble.mjs` copie le build de chaque app dans
 `site/` : le lookbook à la racine, chaque look dans son sous-dossier
 (`/collection-paperasse/reunion-metre/`…). Chaque app définit `base` en conséquence.
-Tout lien interne passe par `import.meta.env.BASE_URL`, jamais par un chemin absolu en dur.
+Les liens d'une app vers elle-même passent par `import.meta.env.BASE_URL` ; les liens entre apps
+(lookbook ↔ looks) passent par `baseFor()` de `packages/shared/src/config.ts`, puisque chaque app
+a sa propre base. Jamais de chemin absolu en dur.
 
 ## Sécurité
 

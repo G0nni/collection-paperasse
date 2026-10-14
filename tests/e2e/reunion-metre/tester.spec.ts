@@ -1931,3 +1931,885 @@ test.describe("reunion-metre · tester", () => {
     });
   }
 });
+
+// =============================================================================================
+// Tour 2 : décisions de l'orchestrateur après le tour 1 (spec et CLAUDE.md, commit 059efe7).
+// Écrits depuis la spec ; les sélecteurs passent par les rôles et les noms accessibles.
+// =============================================================================================
+
+function copyMeterButton(page: Page) {
+  return page.getByRole("button", { name: /Copier le lien du compteur/u });
+}
+
+function titleField(page: Page) {
+  return page.getByRole("textbox", { name: /titre/iu });
+}
+
+/** Le bloc de l'afficheur (montant, durée, personnes, €/heure). */
+function board(page: Page): Locator {
+  return page.getByRole("region", { name: /Montant/u });
+}
+
+function crew(count: number, rate: (index: number) => number, long = false): Member[] {
+  return Array.from({ length: count }, (_, index) => ({
+    label: long
+      ? `Responsable « transverse » numéro ${String(index + 1).padStart(2, "0")}…`.slice(0, 40)
+      : `Participant ${index + 1}`,
+    rate: rate(index),
+  }));
+}
+
+/** Qui recouvre l'élément (centre et deux bords, à mi-hauteur) ; `null` s'il est au premier plan. */
+async function coveredBy(locator: Locator): Promise<string | null> {
+  return locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return "boîte vide";
+    const y = box.top + box.height / 2;
+    for (const x of [box.left + 3, box.left + box.width / 2, box.right - 3]) {
+      if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+        return "hors de la fenêtre";
+      }
+      const top = document.elementFromPoint(x, y);
+      if (top === null) return "rien au point";
+      if (!element.contains(top)) {
+        const name = top.id === "" ? top.nodeName : `${top.nodeName}#${top.id}`;
+        return `${name} « ${(top.textContent ?? "").trim().slice(0, 40)} »`;
+      }
+    }
+    return null;
+  });
+}
+
+/** Cadres qui défilent ou débordent dans <main> (même règle que les tests CA-11 du tour 1). */
+async function scrollingParts(page: Page) {
+  return page.evaluate(() => {
+    const main = document.querySelector("main");
+    if (main === null) return ["pas de <main>"];
+    const found: string[] = [];
+    if (main.getBoundingClientRect().bottom > window.innerHeight + 0.5) {
+      found.push(`<main> finit à ${Math.round(main.getBoundingClientRect().bottom)} px`);
+    }
+    for (const element of [main, ...main.querySelectorAll("*")]) {
+      if (!(element instanceof HTMLElement) || !element.checkVisibility()) continue;
+      const style = getComputedStyle(element);
+      if (
+        /(auto|scroll|hidden)/u.test(style.overflowY) &&
+        element.clientHeight > 1 &&
+        element.scrollHeight > element.clientHeight + 1
+      ) {
+        found.push(
+          `${element.nodeName}#${element.id} : ${element.scrollHeight} > ${element.clientHeight}`,
+        );
+      }
+    }
+    return found;
+  });
+}
+
+/** Clique tout bouton visible qui referme un message (« Fermer », « Masquer »). */
+async function closeEveryMessage(page: Page) {
+  for (const button of await page.getByRole("button", { name: /^(Fermer|Masquer)/u }).all()) {
+    if (await button.isVisible()) await button.click();
+  }
+}
+
+function refuseClipboard(page: Page) {
+  return page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  });
+}
+
+/** Points de code interdits (contrôles, \p{Bidi_Control}) ou invisibles présents dans un texte. */
+function hostileCodePoints(text: string): string[] {
+  return [...text]
+    .filter((char) => /[\p{Cc}\p{Bidi_Control}\u200b\u3164\u2800\uffa0\u115f\u1160]/u.test(char))
+    .filter((char) => char !== "\n" && char !== "\t")
+    .map((char) => `U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}`);
+}
+
+test.describe("reunion-metre · tester · tour 2", () => {
+  // -------------------------------------------------------------------------------------------
+  // CA-11 avec les messages (Design : « CA-11 vaut avec les messages affichés »)
+  // -------------------------------------------------------------------------------------------
+
+  test("CA-11 · 1280×720, 8 participants + tout ce qui peut s'afficher en même temps (CL-2, CL-6, 4 notices, titre de 60 emoji, repli de copie) : rien ne défile ni ne recouvre la liste", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await refuseClipboard(page);
+    // 8 participants valides à 0 €/h (CL-6), 22 illisibles, puis un 31e (CL-4), tarif inconnu,
+    // fin illisible, lancée il y a deux jours (CL-2), titre valide le plus haut possible.
+    const search = query({
+      t: "Z",
+      team: crew(8, () => 0, true),
+      raw: [...Array.from({ length: 22 }, () => "p=x|y"), "p=1|Intrus"],
+      s: NOW - 2 * DAY,
+      e: 1,
+      n: "😀".repeat(60),
+    });
+    await openFixed(page, search);
+    await expectCounter(page);
+    await expect(page.getByText(specText("Réunion bénévole. Suspect."))).toBeVisible();
+    await expect(page.getByText(specText("Réunion de plus de 24 h. Respirez."))).toBeVisible();
+    await expect(page.getByRole("status").getByRole("listitem")).toHaveCount(6);
+    await copyMeterButton(page).click();
+    await expect(page.getByRole("textbox", { name: /lien/iu })).toBeVisible();
+
+    const problems: string[] = [];
+    const check = async (what: string, target: Locator) => {
+      const cover = await coveredBy(target);
+      if (cover !== null) problems.push(`${what} recouvert par ${cover}`);
+    };
+    await check("montant", timer(page));
+    await check("Terminer", finishButton(page));
+    for (const [index, item] of (
+      await page.getByRole("status").getByRole("listitem").all()
+    ).entries()) {
+      await check(`message ${index + 1}`, item);
+    }
+    for (let index = 0; index < 8; index += 1) {
+      await expect(whoFields(page).nth(index)).toBeInViewport({ ratio: 1 });
+      await check(`Qui ${index + 1}`, whoFields(page).nth(index));
+      await check(`€/heure ${index + 1}`, rateFields(page).nth(index));
+      await check(`Retirer ${index + 1}`, removeButtons(page).nth(index));
+    }
+    await check("champ du lien", page.getByRole("textbox", { name: /lien/iu }));
+    expect(problems).toEqual([]);
+    expect(await scrollingParts(page)).toEqual([]);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Pile de messages flottante sur la colonne du ticket (Compteur, grand écran)
+  // -------------------------------------------------------------------------------------------
+
+  // 1093×614 : un écran 1366×768 à 125 % (réglage par défaut de Windows sur ces portables) ;
+  // 960×600 : le plus petit écran où le Compteur se met en page sans défilement.
+  for (const [width, height] of [
+    [1280, 720],
+    [1093, 614],
+    [960, 600],
+  ] as const) {
+    for (const cause of ["notices du lien", "repli de copie (CA-7)"] as const) {
+      test(`Compteur ${width}×${height} · ${cause} : aucune ligne du ticket en cours ne reste masquée sans moyen de la retrouver`, async ({
+        page,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+        await page.setViewportSize({ width, height });
+        await refuseClipboard(page);
+        const title = "Point hebdo de l'équipe produit, marketing et support client";
+        const search =
+          cause === "notices du lien"
+            ? query({ t: "Z", raw: ["p=12.5|x", "p=-1|y"], s: NOW - 600, e: "fin", n: title })
+            : query({ s: NOW - 600, n: title });
+        await openFixed(page, search);
+        await expectCounter(page);
+        if (cause === "repli de copie (CA-7)") {
+          await copyMeterButton(page).click();
+          await expect(page.getByRole("textbox", { name: /lien/iu })).toBeVisible();
+        }
+
+        const masked = async () => {
+          const found: string[] = [];
+          const lines = [
+            ...(await ticket(page).getByRole("term").all()),
+            ...(await ticket(page).getByRole("definition").all()),
+          ];
+          for (const line of lines) {
+            if (!(await line.isVisible())) continue;
+            // Si le ticket défile dans son cadre, on amène la ligne en vue avant de juger.
+            await line.evaluate((element) => element.scrollIntoView({ block: "nearest" }));
+            const cover = await coveredBy(line);
+            if (cover !== null)
+              found.push(`« ${normalizeSpaces(await line.innerText())} » sous ${cover}`);
+          }
+          return found;
+        };
+        if ((await masked()).length > 0) await closeEveryMessage(page);
+        expect(await masked()).toEqual([]);
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // CA-6 · e borné à [s + 1, s + 86 400]
+  // -------------------------------------------------------------------------------------------
+
+  test("CA-6 · « Terminer » dans la seconde du lancement : e = s + 1, et le lien du ticket rouvre ce Ticket", async ({
+    page,
+    context,
+  }) => {
+    await openTicking(page, "");
+    await launchButton(page).click();
+    await expectCounter(page);
+    await finishButton(page).click();
+    await expectTicket(page);
+    expect(urlParams(page).get("s")).toBe(String(NOW));
+    expect(urlParams(page).get("e")).toBe(String(NOW + 1));
+    const amount = await shownAmount(page);
+    expect(amount).toBe(euros(cost(1, DEFAULT_TEAM, "B")));
+
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS);
+    await other.goto(page.url());
+    await expectTicket(other);
+    expect(await shownAmount(other)).toBe(amount);
+  });
+
+  test("CA-6 · « Terminer » après plus de 24 h : e = s + 86 400, Ticket figé à 24 h, lien valide", async ({
+    page,
+    context,
+  }) => {
+    const s = NOW - 2 * DAY;
+    await openFixed(page, query({ s }));
+    await expectCounter(page);
+    await finishButton(page).click();
+    await expectTicket(page);
+    expect(urlParams(page).get("e")).toBe(String(s + DAY));
+    expect(await shownAmount(page)).toBe(euros(cost(DAY, SPEC_TEAM, "B")));
+
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS + 3600_000);
+    await other.goto(page.url());
+    await expectTicket(other);
+    expect(await shownAmount(other)).toBe(euros(cost(DAY, SPEC_TEAM, "B")));
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // CL-3 · e ignoré, avec message
+  // -------------------------------------------------------------------------------------------
+
+  for (const [label, e] of [
+    ["e = s", NOW - 600],
+    ["e < s", NOW - 601],
+    ["e > s + 86 400", NOW - 600 + DAY + 1],
+    ["e = maintenant + 61 s", NOW + 61],
+    ["e très loin dans le futur", "99999999999999"],
+    ["e illisible", "demain"],
+    ["e avec du HTML", encodeURIComponent("<img src=x onerror=alert(1)>")],
+  ] as const) {
+    test(`CL-3 · ${label} → e ignoré, Compteur, message visible, e retiré du lien`, async ({
+      page,
+    }) => {
+      await openFixed(page, query({ s: NOW - 600, e }));
+      await expectCounter(page);
+      expect(await shownAmount(page)).toBe(euros(cost(600, SPEC_TEAM, "B")));
+      await expect(messages(page).filter({ hasText: /fin/iu }).first()).toBeVisible();
+      expect(urlParams(page).has("e")).toBe(false);
+    });
+  }
+
+  test("CL-3 · lien avec une fin dans le futur : le lien copié rouvre le même Compteur, même après cette fin (règle 2)", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const s = NOW - 600;
+    await openFixed(page, query({ s, e: NOW + 3600 }));
+    await expectCounter(page);
+    await copyMeterButton(page).click();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS + 2 * 3600_000);
+    await other.goto(copied);
+    await expectCounter(other);
+    expect(await shownAmount(other)).toBe(euros(cost(600 + 7200, SPEC_TEAM, "B")));
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // URL réécrite sous sa forme propre (spec, « Écrans »)
+  // -------------------------------------------------------------------------------------------
+
+  const S2 = NOW - 600;
+  const MESSY = [
+    "utm_source=chat",
+    `n=${encodeURIComponent("Revue d'équipe")}`,
+    "t=C",
+    "t=A",
+    "p=12.5|D%C3%A9cimal",
+    participant(SPEC_TEAM[0] ?? { label: "", rate: 0 }),
+    "p=sans-barre",
+    participant(SPEC_TEAM[1] ?? { label: "", rate: 0 }),
+    `p=5|${encodeURIComponent("\u200b\u3164")}`,
+    "v=1",
+    "v=2",
+    `s=${S2}`,
+    `s=${S2 + 5}`,
+    `x=${encodeURIComponent("<img src=x onerror=alert(1)>")}`,
+    `y=${SCRIPT_SCHEME}alert(1)`,
+    "n=Second",
+  ].join("&");
+  const MESSY_HASH = "#%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E";
+
+  function expectCleanMeter(url: string) {
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe("/collection-paperasse/reunion-metre/");
+    expect(parsed.hash).toBe("");
+    // Ordre de l'exemple de la spec : v, t, p…, s, (e), n ; chaque paramètre une fois, sauf p.
+    expect([...parsed.searchParams.keys()]).toEqual(["v", "t", "p", "p", "s", "n"]);
+    expect(parsed.searchParams.get("v")).toBe("1");
+    expect(parsed.searchParams.get("t")).toBe("C");
+    expect(parsed.searchParams.getAll("p")).toEqual([
+      "68|Cheffe de projet",
+      "48|Kevin du marketing",
+    ]);
+    expect(parsed.searchParams.get("s")).toBe(String(S2));
+    expect(parsed.searchParams.get("n")).toBe("Revue d'équipe");
+    expect(url).not.toMatch(/[<>"]|script:/iu);
+  }
+
+  test("URL propre · inconnus, doublons, participants invalides et hash retirés après lecture", async ({
+    page,
+  }) => {
+    const dialogs: string[] = [];
+    page.on("dialog", (dialog) => {
+      dialogs.push(dialog.message());
+      void dialog.dismiss();
+    });
+    await openFixed(page, `${MESSY}${MESSY_HASH}`);
+    await expectCounter(page);
+    expectCleanMeter(page.url());
+    expect(await shownAmount(page)).toBe(euros(cost(600, SPEC_TEAM.slice(0, 2), "C")));
+    expect(dialogs).toEqual([]);
+  });
+
+  test("URL propre · réécrite sur place (replaceState) : Précédent ne ramène pas au lien sale, Suivant rend la forme propre", async ({
+    page,
+  }) => {
+    await openFixed(page, "");
+    await expectConfiguration(page);
+    const lengthBefore = await page.evaluate(() => history.length);
+    await page.goto(`reunion-metre/?${MESSY}${MESSY_HASH}`);
+    await expectCounter(page);
+    expect(await page.evaluate(() => history.length)).toBe(lengthBefore + 1);
+    await page.goBack();
+    await expectConfiguration(page);
+    expect(new URL(page.url()).searchParams.has("utm_source")).toBe(false);
+    await page.goForward();
+    await expectCounter(page);
+    expectCleanMeter(page.url());
+  });
+
+  test("URL propre · « Copier le lien du compteur » copie la forme propre, qui se rouvre à l'identique", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await openFixed(page, `${MESSY}${MESSY_HASH}`);
+    await copyMeterButton(page).click();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expectCleanMeter(copied);
+
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS + 120_000);
+    await other.goto(copied);
+    await expectCounter(other);
+    // Déjà propre : la réécriture ne change plus rien, et aucune notice ne s'affiche.
+    expect(other.url()).toBe(copied);
+    await expect(messages(other).getByRole("listitem")).toHaveCount(0);
+    expect(await shownAmount(other)).toBe(euros(cost(720, SPEC_TEAM.slice(0, 2), "C")));
+  });
+
+  test("URL propre · « Copier le lien du ticket » copie la forme propre du ticket", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await openFixed(
+      page,
+      `${query({ s: NOW - 600, e: NOW - 60 })}&e=${NOW - 300}&utm_medium=x#frag`,
+    );
+    await expectTicket(page);
+    await copyTicketButton(page).click();
+    const copied = new URL(await page.evaluate(() => navigator.clipboard.readText()));
+    expect([...copied.searchParams.keys()]).toEqual(["v", "t", "p", "p", "p", "s", "e"]);
+    expect(copied.searchParams.get("e")).toBe(String(NOW - 60));
+    expect(copied.hash).toBe("");
+  });
+
+  test("URL propre · texte libre unicode (RTL, emoji, insécables) : la forme propre garde chaque caractère", async ({
+    page,
+    context,
+  }) => {
+    const team: Member[] = [
+      { label: "مدير المشروع", rate: 10 },
+      {
+        label: `Kevin ${String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467)}`,
+        rate: 20,
+      },
+      { label: "A|B & C=D ?#%", rate: 30 },
+    ];
+    const title = "Point\u00a0: «\u00a0budget\u00a0» ?";
+    await openFixed(page, query({ t: "A", team, s: NOW - 3600, n: title }));
+    await expectCounter(page);
+    const params = urlParams(page);
+    expect(params.getAll("p")).toEqual(team.map((member) => `${member.rate}|${member.label}`));
+    expect(params.get("n")).toBe(title);
+
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS);
+    await other.goto(page.url());
+    expect(other.url()).toBe(page.url());
+    for (const [index, member] of team.entries()) {
+      await expect(whoFields(other).nth(index)).toHaveValue(member.label);
+    }
+    expect(await shownAmount(other)).toBe(euros(60));
+  });
+
+  test("URL propre · s illisible : Configuration, et ni s ni e ne restent dans le lien", async ({
+    page,
+  }) => {
+    await openFixed(page, query({ s: "1.7e9", e: NOW - 60 }));
+    await expectConfiguration(page);
+    const params = urlParams(page);
+    expect(params.has("s")).toBe(false);
+    expect(params.has("e")).toBe(false);
+    expect(params.getAll("p")).toHaveLength(SPEC_TEAM.length);
+  });
+
+  test("URL propre · lien de plus de 4 Ko : refusé, l'adresse ne garde pas les 4 Ko", async ({
+    page,
+  }) => {
+    await openFixed(page, `${query({ s: NOW - 60 })}&x=${"a".repeat(4200)}`);
+    await expectConfiguration(page);
+    await expect(page.getByText(specText("Lien trop long"))).toBeVisible();
+    expect(page.url().length).toBeLessThan(200);
+  });
+
+  test("URL propre · hash seul sur l'adresse nue (HTML dedans) : retiré, rien ne s'exécute", async ({
+    page,
+  }) => {
+    const dialogs: string[] = [];
+    page.on("dialog", (dialog) => {
+      dialogs.push(dialog.message());
+      void dialog.dismiss();
+    });
+    await page.clock.setFixedTime(NOW_MS);
+    await page.goto(`reunion-metre/${MESSY_HASH}`);
+    await expectConfiguration(page);
+    expect(new URL(page.url()).hash).toBe("");
+    expect(dialogs).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // « Nouvelle réunion » (spec, « Écrans » 3)
+  // -------------------------------------------------------------------------------------------
+
+  test("Nouvelle réunion · même équipe, tarif et titre ; pushState (Précédent rend le ticket) puis replaceState en Configuration", async ({
+    page,
+  }) => {
+    await openFixed(page, query({ t: "C", s: NOW - 3600, e: NOW - 600, n: "Rétro" }));
+    await expectTicket(page);
+    const ticketUrl = page.url();
+    const ticketAmount = await shownAmount(page);
+    const before = await page.evaluate(() => history.length);
+
+    await newMeetingButton(page).click();
+    await expectConfiguration(page);
+    expect(await page.evaluate(() => history.length)).toBe(before + 1);
+    let params = urlParams(page);
+    expect(params.has("s")).toBe(false);
+    expect(params.has("e")).toBe(false);
+    expect(params.get("t")).toBe("C");
+    expect(params.get("n")).toBe("Rétro");
+    expect(params.getAll("p")).toEqual(SPEC_TEAM.map((member) => `${member.rate}|${member.label}`));
+    for (const [index, member] of SPEC_TEAM.entries()) {
+      await expect(whoFields(page).nth(index)).toHaveValue(member.label);
+      await expect(rateFields(page).nth(index)).toHaveValue(String(member.rate));
+    }
+    await expect(rateRadio(page, /Aurait pu être un mail/u)).toBeChecked();
+    await expect(titleField(page)).toHaveValue("Rétro");
+
+    // Les modifications de la Configuration réécrivent cette entrée, sans en créer.
+    await rateFields(page).nth(2).fill("12");
+    await rateRadio(page, /Point rapide/u).check();
+    await titleField(page).fill("Rétro bis");
+    await expect.poll(() => urlParams(page).get("n")).toBe("Rétro bis");
+    params = urlParams(page);
+    expect(params.get("t")).toBe("A");
+    expect(params.getAll("p")[2]).toBe("12|Stagiaire");
+    expect(await page.evaluate(() => history.length)).toBe(before + 1);
+    const setupUrl = page.url();
+
+    await page.goBack();
+    await expectTicket(page);
+    expect(page.url()).toBe(ticketUrl);
+    expect(await shownAmount(page)).toBe(ticketAmount);
+
+    await page.goForward();
+    await expectConfiguration(page);
+    expect(page.url()).toBe(setupUrl);
+    await expect(titleField(page)).toHaveValue("Rétro bis");
+
+    // Lancer depuis cette Configuration : s = maintenant, toujours sans nouvelle entrée (CA-2).
+    await launchButton(page).click();
+    await expectCounter(page);
+    expect(urlParams(page).get("s")).toBe(String(NOW));
+    expect(await page.evaluate(() => history.length)).toBe(before + 1);
+    await page.goBack();
+    await expectTicket(page);
+    expect(page.url()).toBe(ticketUrl);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Modèle de menace · texte sans caractère visible refusé, \p{Bidi_Control} retiré
+  // -------------------------------------------------------------------------------------------
+
+  for (const [label, invisible] of [
+    ["U+200B ×3", "\u200b\u200b\u200b"],
+    ["U+3164", "\u3164"],
+    ["U+2800 ×5", "\u2800\u2800\u2800\u2800\u2800"],
+    ["U+FFA0", "\uffa0"],
+    ["U+115F U+1160", "\u115f\u1160"],
+    ["U+2060 U+FEFF", "\u2060\ufeff"],
+    ["U+00AD", "\u00ad"],
+    ["U+200D seul", "\u200d"],
+    ["espaces, insécable, U+3000 et U+200B", " \u00a0\u3000\u200b "],
+    ["U+061C U+200F (bidi seuls)", "\u061c\u200f"],
+  ] as const) {
+    test(`Menace · libellé invisible (${label}) dans le lien → participant ignoré, avec message, retiré du lien`, async ({
+      page,
+    }) => {
+      await openFixed(
+        page,
+        query({
+          t: "A",
+          team: [
+            { label: "Kevin", rate: 10 },
+            { label: invisible, rate: 1000 },
+          ],
+          s: NOW - 3600,
+        }),
+      );
+      await expectCounter(page);
+      await expect(whoFields(page)).toHaveCount(1);
+      expect(await shownAmount(page)).toBe(euros(10));
+      await expect(
+        messages(page)
+          .filter({ hasText: /1 participant/u })
+          .first(),
+      ).toBeVisible();
+      expect(urlParams(page).getAll("p")).toEqual(["10|Kevin"]);
+    });
+  }
+
+  test("Menace · seuls des libellés invisibles → Configuration avec message", async ({ page }) => {
+    await openFixed(
+      page,
+      query({
+        team: [
+          { label: "\u200b", rate: 10 },
+          { label: "\u3164\u3164", rate: 20 },
+        ],
+        s: NOW - 60,
+      }),
+    );
+    await expectConfiguration(page);
+    await expect(
+      messages(page)
+        .filter({ hasText: /participant/iu })
+        .first(),
+    ).toBeVisible();
+  });
+
+  test("Menace · invisibles mêlés à du visible : accepté (seul le texte sans rien de visible est refusé)", async ({
+    page,
+  }) => {
+    await openFixed(
+      page,
+      query({
+        t: "A",
+        team: [
+          { label: "Ke\u200bvin", rate: 10 },
+          { label: "Ana", rate: 5 },
+        ],
+        s: NOW - 3600,
+      }),
+    );
+    await expectCounter(page);
+    await expect(whoFields(page)).toHaveCount(2);
+    expect(await shownAmount(page)).toBe(euros(15));
+  });
+
+  test("Menace · titre invisible → aucun titre affiché sur le ticket, n retiré du lien", async ({
+    page,
+  }) => {
+    await openFixed(page, query({ s: NOW - 600, e: NOW - 60, n: "\u200b\u3164\u2800\u2800" }));
+    await expectTicket(page);
+    expect(urlParams(page).has("n")).toBe(false);
+    const text = await page.evaluate(() => document.body.innerText);
+    expect(hostileCodePoints(text)).toEqual([]);
+  });
+
+  test("Menace · U+061C (ALM) retiré du libellé et du titre affichés (Ticket) et du lien réécrit", async ({
+    page,
+  }) => {
+    const alm = "\u061c";
+    await openFixed(
+      page,
+      query({
+        t: "A",
+        team: [{ label: `Ke${alm}vin`, rate: 10 }],
+        s: NOW - 3600,
+        e: NOW - 60,
+        n: `Rap${alm}port ${alm}fdp.exe`,
+      }),
+    );
+    await expectTicket(page);
+    const lines = (await ticketLines(page)).join("\n");
+    expect(lines).toContain("Kevin");
+    expect(lines).toContain("Rapport fdp.exe");
+    expect(hostileCodePoints(await page.evaluate(() => document.body.textContent ?? ""))).toEqual(
+      [],
+    );
+    expect(page.url()).not.toMatch(/%D8%9C/iu);
+  });
+
+  test("Menace · tous les \\p{Bidi_Control} et les contrôles retirés, partout dans la page", async ({
+    page,
+  }) => {
+    const bidi = [
+      0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068,
+      0x2069,
+    ]
+      .map((code) => String.fromCodePoint(code))
+      .join("");
+    await openFixed(
+      page,
+      query({
+        t: "A",
+        team: [{ label: `K${bidi}evin\u0000\u009f`, rate: 10 }],
+        s: NOW - 600,
+        n: `R${bidi}étro`,
+      }),
+    );
+    await expectCounter(page);
+    await expect(whoFields(page).first()).toHaveValue("Kevin");
+    expect(hostileCodePoints(await page.evaluate(() => document.body.textContent ?? ""))).toEqual(
+      [],
+    );
+    expect(urlParams(page).get("n")).toBe("Rétro");
+  });
+
+  test("Menace · saisie : libellé invisible signalé et hors du lien ; U+061C tapé n'entre pas dans le lien", async ({
+    page,
+  }) => {
+    await openFixed(page, query({ s: NOW - 600 }));
+    await expectCounter(page);
+    await whoFields(page).nth(1).fill("\u200b\u3164");
+    await expect(whoFields(page).nth(1)).toHaveAttribute("aria-invalid", "true");
+    await expect
+      .poll(() => urlParams(page).getAll("p"))
+      .toEqual(["68|Cheffe de projet", "6|Stagiaire"]);
+    await whoFields(page).nth(0).fill("Che\u061cffe");
+    await expect.poll(() => urlParams(page).getAll("p")[0]).toBe("68|Cheffe");
+    expect(page.url()).not.toMatch(/%D8%9C/iu);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Longueurs en points de code, pas de maxlength
+  // -------------------------------------------------------------------------------------------
+
+  test("Menace · aucun maxlength sur le titre ni sur les libellés (Configuration et Compteur)", async ({
+    page,
+  }) => {
+    await openFixed(page, "");
+    expect(await titleField(page).getAttribute("maxlength")).toBeNull();
+    for (const field of await whoFields(page).all()) {
+      expect(await field.getAttribute("maxlength")).toBeNull();
+    }
+    await openFixed(page, query({ s: NOW - 60 }));
+    for (const field of await whoFields(page).all()) {
+      expect(await field.getAttribute("maxlength")).toBeNull();
+    }
+  });
+
+  test("Menace · titre tapé : 60 emoji (120 unités UTF-16) acceptés et lancés, 61 signalés", async ({
+    page,
+  }) => {
+    await openTicking(page, "");
+    const sixty = "😀".repeat(60);
+    await titleField(page).fill(`${sixty}😀`);
+    await expect(titleField(page)).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByText(/60 caractères/u).first()).toBeVisible();
+    await titleField(page).fill(sixty);
+    await expect(titleField(page)).not.toHaveAttribute("aria-invalid", "true");
+    await launchButton(page).click();
+    await expectCounter(page);
+    expect(urlParams(page).get("n")).toBe(sixty);
+  });
+
+  test("Menace · libellé tapé pendant le Compteur : 8 familles ZWJ (40 points de code) acceptées, 41 refusées", async ({
+    page,
+  }) => {
+    const family = String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467);
+    await openFixed(page, query({ s: NOW - 600 }));
+    const who = whoFields(page).first();
+    await who.fill(family.repeat(8));
+    await expect(who).not.toHaveAttribute("aria-invalid", "true");
+    await expect.poll(() => urlParams(page).getAll("p")[0]).toBe(`68|${family.repeat(8)}`);
+    await who.fill(`${family.repeat(8)}x`);
+    await expect(who).toHaveAttribute("aria-invalid", "true");
+    await expect.poll(() => urlParams(page).getAll("p")).toHaveLength(2);
+    expect(
+      urlParams(page)
+        .getAll("p")
+        .some((value) => value.endsWith("x")),
+    ).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // CL-8 · l'app refuse une modification qui produirait un lien trop long
+  // -------------------------------------------------------------------------------------------
+
+  test("CL-8 · pendant le Compteur, un libellé qui ferait dépasser 4 Ko au lien est refusé avec « Lien trop long », le lien ne change pas", async ({
+    page,
+  }) => {
+    const emoji40 = "😀".repeat(40);
+    const team = Array.from({ length: 30 }, (_, index) => ({
+      label: index < 6 ? emoji40 : `${"a".repeat(37)}${String(index).padStart(3, "0")}`,
+      rate: 10,
+    }));
+    const search = query({ t: "A", team, s: NOW - 3600 });
+    // Un libellé de 40 emoji encodés pèse 440 caractères de plus qu'un libellé ASCII de 40.
+    expect(search.length).toBeLessThanOrEqual(4096);
+    expect(search.length + 440).toBeGreaterThan(4096);
+    await openFixed(page, search);
+    await expectCounter(page);
+    const before = page.url();
+    await whoFields(page).nth(29).fill(emoji40);
+    await expect(page.getByText(specText("Lien trop long")).first()).toBeVisible();
+    expect(page.url()).toBe(before);
+    expect(await shownAmount(page)).toBe(euros(300));
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Design · Doto 900 pour tous les chiffres hors ticket ; « € » avant le montant
+  // -------------------------------------------------------------------------------------------
+
+  async function fontOf(locator: Locator) {
+    return locator.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        family: (style.fontFamily.split(",")[0] ?? "").replace(/["']/gu, "").trim(),
+        weight: style.fontWeight,
+      };
+    });
+  }
+
+  test("Design · Doto 900 chargée et utilisée pour montant, durée, personnes, €/heure et taux ; le ticket reste en JetBrains Mono", async ({
+    page,
+  }) => {
+    await openFixed(page, query({ s: NOW - 600 }));
+    await expectCounter(page);
+    const digits = timer(page)
+      .getByText(/\d,\d\d/u)
+      .last();
+    const targets: [string, Locator][] = [
+      ["montant", digits],
+      ...(await board(page).getByRole("definition").all()).map(
+        (definition, index): [string, Locator] => [`stat ${index + 1}`, definition],
+      ),
+      ...(await rateFields(page).all()).map((field, index): [string, Locator] => [
+        `taux ${index + 1}`,
+        field,
+      ]),
+    ];
+    expect(targets.length).toBeGreaterThanOrEqual(1 + 3 + SPEC_TEAM.length);
+    const wrong: string[] = [];
+    for (const [name, target] of targets) {
+      const font = await fontOf(target);
+      if (font.family !== "Doto" || font.weight !== "900") {
+        wrong.push(`${name} : ${font.family} ${font.weight}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(
+      await page.evaluate(() =>
+        [...document.fonts].some(
+          (face) => face.family.replace(/["']/gu, "") === "Doto" && face.status === "loaded",
+        ),
+      ),
+    ).toBe(true);
+    expect((await fontOf(ticket(page).getByRole("definition").last())).family).toBe(
+      "JetBrains Mono",
+    );
+
+    // Configuration : taux et coût horaire.
+    await openFixed(page, "");
+    for (const field of await rateFields(page).all()) {
+      expect((await fontOf(field)).family).toBe("Doto");
+    }
+    const preview = page
+      .getByText(/Coût horaire/u)
+      .getByText(/\d/u)
+      .last();
+    expect((await fontOf(preview)).family).toBe("Doto");
+  });
+
+  test("Design · afficheur « € » en petit avant le montant, milliers en U+00A0 (jamais U+202F)", async ({
+    page,
+  }) => {
+    // 1000 €/h × 2 h = 2 000,00 €.
+    await openFixed(page, query({ t: "A", team: [{ label: "Board", rate: 1000 }], s: NOW - 7200 }));
+    const text = await timer(page).innerText();
+    const euro = text.indexOf("€");
+    const firstDigit = text.search(/\d/u);
+    expect(euro).toBeGreaterThanOrEqual(0);
+    expect(euro).toBeLessThan(firstDigit);
+    expect(text).toContain("2\u00a0000,00");
+    expect(text).not.toContain("\u202f");
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Accessibilité et typographie des écrans ajoutés au tour 2 (1280 px et 360 px)
+  // -------------------------------------------------------------------------------------------
+
+  const ROUND2_SCREENS: [string, string, ((page: Page) => Promise<void>) | null][] = [
+    [
+      "Compteur + notices du lien + CL-2 + CL-6",
+      query({
+        t: "Z",
+        team: crew(3, () => 0),
+        raw: ["p=12.5|x"],
+        s: NOW - 2 * DAY,
+        e: "fin",
+      }),
+      null,
+    ],
+    [
+      "Compteur + repli de copie",
+      query({ s: NOW - 600, n: "Point rapide" }),
+      async (page) => {
+        await copyMeterButton(page).click();
+        await expect(page.getByRole("textbox", { name: /lien/iu })).toBeVisible();
+      },
+    ],
+    [
+      "Configuration après « Nouvelle réunion »",
+      query({ s: NOW - 600, e: NOW - 60, n: "Rétro" }),
+      async (page) => {
+        await newMeetingButton(page).click();
+        await expectConfiguration(page);
+      },
+    ],
+  ];
+
+  for (const [screen, search, prepare] of ROUND2_SCREENS) {
+    test(`a11y · ${screen} : aucune violation axe, pas de défilement horizontal, typographie`, async ({
+      page,
+    }) => {
+      await refuseClipboard(page);
+      await openFixed(page, search);
+      if (prepare !== null) await prepare(page);
+      expect(await axeViolations(page)).toEqual([]);
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+      const issues = (await perceivedTexts(page, page.locator("body"))).flatMap(({ where, text }) =>
+        typographyIssues(text).map((issue) => `${where} : ${issue}`),
+      );
+      expect(issues).toEqual([]);
+    });
+  }
+});

@@ -1,75 +1,78 @@
-# Rapport lookbook · tour 2
+# Rapport lookbook · tour 3 (dernier tour)
 
-## Verdict
+## Ce qui bloque
 
-**Pas fini.** 2 bloquants (reviewer), 0 critique ou élevé (security, 2 points moyens).
-5 tests unitaires (oracle typographique) et 1 test e2e × 8 (hashes CSP) en échec.
-Les 4 bloquants du tour 1 sont corrigés.
+**Pas fini après 3 tours.** Le lookbook livré est conforme : 0 bloquant au reviewer, 0 critique
+ou élevé chez security, tous les CA de la spec couverts et verts. Mais `pnpm verify` est rouge
+à cause de **15 tests en échec qui portent sur l'outillage partagé**, pas sur la page :
 
-Décisions de l'orchestrateur à l'issue du tour (commit « rapport tour 2 ») :
+1. `tests/e2e/support/csp.ts` (`cspProblems`, utilisé par `scripts/check-csp.mjs` et les e2e)
+   fonctionne en liste noire : une directive inconnue qui élargirait la CSP (`script-src-elem`,
+   `frame-src`, `worker-src`, nonce…) passe. 12 tests e2e. Reviewer : Important ; security : Moyen.
+   Personne d'extérieur ne peut introduire ces directives ; le risque crédible est une montée de
+   version d'Astro. Correction connue (≈ 10 lignes) : liste blanche des noms de directives, refus
+   des nonces, de `'strict-dynamic'` et des sources schéma.
+2. `packages/shared/src/typography.ts` : une espace sécable après **deux** insécables n'est pas vue
+   (2 tests), et une URL avale « ) » et « : » (1 test). Aucun texte du dépôt n'est concerné.
 
-- Les 5 hashes des directives client d'Astro sont tolérés (aucune option pour les retirer,
-  confirmé par le builder, le reviewer et security dans le code d'Astro 7.3.8). Documenté dans
-  `CLAUDE.md` et `.claude/agents/security.md`. Le test doit les accepter via une liste blanche
-  **calculée** depuis `astro/runtime/client/*.prebuilt.js`, plus les hashes des scripts réellement
-  présents dans la page ; tout autre hash fait échouer le test.
-- Les agents qui lisent `site/` ne doivent pas lancer de build en même temps qu'un autre agent
-  (security a reconstruit `site/` pendant les e2e du reviewer).
+**Pourquoi le builder n'y arrive pas en 3 tours** : ce n'est pas une incapacité, c'est que la
+boucle ne converge pas. L'oracle typographique et le contrôle de CSP sont des heuristiques ; à
+chaque tour le tester trouve un cas plus marginal (une espace, puis deux, puis la parenthèse,
+puis `script-src-elem`) que le builder corrige au tour suivant. Le reviewer recommande de
+recadrer le périmètre du tester (formulation proposée plus bas) avant de livrer les 3 autres looks.
 
 ## Tester
 
-Rien de perdu depuis le tour 1, modifications du builder justifiées par la spec.
-
 | ID | Fichier | Statut |
 | -- | ------- | ------ |
-| Contenu, aperçus HTML `role="img"` nommés | tester.spec.ts | ✅ |
-| CA-1 | tester.spec.ts | ✅ |
-| CA-2 (360, 600, 768, 959, 960, 1440 px) | tester.spec.ts | ✅ |
-| CA-3 réseau + CSP appliquée par le navigateur (préfixe, inline bloqué) | tester.spec.ts, csp.spec.ts | ✅ |
-| CA-3 chaque hash `script-src` correspond à un script de la page | csp.spec.ts:213 | ❌ (hashes Astro) |
-| CA-4 axe, contraste, focus, couleur seule, 44 px, WCAG 2.5.3 | collection.spec.ts, tester.spec.ts | ✅ |
-| CA-5 tour au texte exact, pas d'étiquette sur le lookbook, `--tag-*` | collection.spec.ts, tester.spec.ts | ✅ |
-| Oracle typographique (rigueur) | typography.tester.test.ts | ❌ 5 cas |
+| Contenu, aperçus `role="img"` nommés, SVG décoratif `aria-hidden` | lookbook/tester.spec.ts | ✅ |
+| CA-1 liens | tester.spec.ts | ✅ |
+| CA-2 (360 à 1440 px) | tester.spec.ts | ✅ |
+| CA-3 réseau, CSP dans le navigateur, hashes en liste blanche calculée | csp.spec.ts | ✅ |
+| CA-3 CSP fermée (fetch, formulaire, `<base>`, object, iframe bloqués) | lookbook/csp-tester.spec.ts | ✅ |
+| CA-3 `PAPERASSE_ORIGIN` hostile (43 cas) | config.tester.test.ts | ✅ |
+| CA-3 `check-csp.mjs` refuse une directive inconnue qui élargit la CSP | csp-tester.spec.ts:62, 73, 85 | ❌ 12 |
+| CA-4 axe, contraste, focus, 44 px, WCAG 2.5.3 | collection.spec.ts, tester.spec.ts | ✅ |
+| CA-5 tour des étiquettes au texte exact, U+00A0 seule | collection.spec.ts, tester.spec.ts | ✅ |
+| Lien GitHub incliné avec son post-it | tester.spec.ts | ✅ |
+| Oracle typographique (rigueur) | typography.tester.test.ts | ❌ 3 |
 | Lighthouse ≥ 95 | | ⚠️ non testable ici |
 
-Oracle : espace sécable collée à l'insécable non détectée (un seul voisin examiné), masquage
-d'URL qui avale « » » et le tiret cadratin, pas de drapeau `i` (faux positif sur `HTTPS://`).
+Résultats : e2e 235 ✅ / 12 ❌ / 41 sautés (desktop seulement, voulu) ; unitaires 219 ✅ / 3 ❌.
+JS envoyé par le lookbook : 0 octet.
 
-Trous de spec : U+00A0 exigé par le tour CA-5 alors que l'oracle accepte U+202F ; le lien
-GitHub penche avec son post-it ; SVG inline dans l'aperçu de l'acte ; `'self'` restant.
+Trous de spec relevés : insécable avant « → » du `CollectionTag` ajoutée par le builder sans
+modifier la spec ; `normalizeSpaces` des e2e compte encore U+202F comme une espace ; double
+insécable acceptée alors que le commentaire de l'oracle dit « exactement une ».
 
 ## Reviewer
 
-Points du tour 1 traités (reste : épinglage des actions par SHA, assertion d'accroche e2e vague).
+Tous les points du tour 2 sont fermés sauf : actions GitHub épinglées par tag et non par SHA
+(ouvert depuis le tour 1), assertion e2e vague sur l'accroche.
 
-- **[Bloquant]** Oracle typographique : corriger dans `typography.ts` (voisin + au-delà,
-  `URL_PATTERN = /\bhttps?:\/\/[^\s«»]+/giu`, tiret cadratin testé sur le texte original).
-- **[Bloquant]** Test des hashes : liste blanche calculée (voir décision ci-dessus), qui accepte
-  aussi les hashes des `<script src>` de la page servis sous le préfixe.
-- [Important] `tests/e2e/lookbook/csp.spec.ts` couvre les 4 pages : le déplacer dans
-  `tests/e2e/csp.spec.ts` et fusionner avec la partie CSP de `collection.spec.ts`.
-- [Important] Trois analyseurs de CSP : un seul `readCsp()` dans `tests/e2e/support/csp.ts`,
-  indépendant de l'ordre des attributs.
-- Mineurs : insécable avant la flèche du `CollectionTag` ; `NBSP` exporté une fois depuis shared ;
-  supprimer les tests d'oracle redondants de `spec.test.ts` ; tests `request` limités au projet
-  desktop ; erreur explicite si aucun `.woff2` ; message si `pnpm` introuvable dans
-  `build-e2e.mjs` ; vérifier dans `deploy.yml` que `site/` porte la CSP de production.
+- [Important] `tests/e2e/support/csp.ts` en liste noire (voir « Ce qui bloque », point 1).
+- [Important] Épingler les actions des workflows par SHA.
+- [Mineur] Oracle : sauter toute la suite d'insécables avant de classer le caractère suivant.
+- [Mineur] `URL_PATTERN` : rogner la ponctuation finale, ou retirer le test (aucune URL affichée).
+- [Mineur] `check-csp.mjs` importe un fichier de `tests/e2e/support/` : déplacer `csp.ts` dans
+  `scripts/lib/` ou `packages/shared`.
+- [Mineur] `&nbsp;→` littéral dans `index.astro:112`.
 
-Verdict : Pas prêt, 2 bloquants.
+Proposition pour `.claude/agents/tester.md` (section « Périmètre ») : un test en échec doit
+montrer un défaut observable dans le site construit ou le code du look ; une faille de
+l'outillage sur une entrée que rien dans le dépôt ne produit va dans une section « Durcissements
+proposés » du rapport ; au dernier tour, aucun nouveau test en échec sur l'outillage. Même règle
+pour le reviewer : un trou d'outillage n'est Bloquant que s'il masque un défaut réel.
+
+Verdict : 0 bloquant, mais `pnpm verify` rouge.
 
 ## Security
 
-Aucun point critique ou élevé. M1 du tour 1 corrigé en production (vérifié sur les 4 pages).
+Aucun point critique ou élevé. M1 (validation de `PAPERASSE_ORIGIN`, 29 valeurs testées, et
+contrôle de la CSP au déploiement) et M2 (CSP fermée par défaut, sondes bloquées dans Chromium)
+sont corrigés et vérifiés.
 
-- **Moyen M1** : `PAPERASSE_ORIGIN` mal validée. `https://*` élargit la CSP à tout hôte,
-  `https://a"b` casse la meta (Astro n'échappe pas les guillemets) et désactive la CSP,
-  `https://x;script-src` injecte une directive. Corriger : n'accepter que `http:` sur un hôte
-  local avec port numérique ; tests pour `*`, `"`, `;`, `'` ; étape de contrôle de la CSP de
-  production dans `deploy.yml`.
-- **Moyen M2** : `default-src`, `connect-src`, `base-uri`, `form-action` en `'self'` couvrent tout
-  `g0nni.github.io` (iframe, media, fetch vers un autre repo prouvés). Aucune app n'en a besoin :
-  `default-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'`, `img-src` et
-  `font-src` sur le préfixe.
-- Info : hashes Astro tolérables (liste blanche calculée) ; la restriction de chemin CSP ne tient
-  plus après redirection (CSP3, non exploitable sur Pages) ; refus d'`assemble.mjs` vérifiés
-  (suggestion : `filter` dans `cp`) ; `serve.mjs` bien limité à 127.0.0.1 ; 0 vulnérabilité.
+- **Moyen** : `check-csp` ne refuse pas les directives qu'il ne connaît pas, ni les nonces, ni un
+  hash arbitraire dans `script-src` (la liste blanche calculée n'existe que dans l'e2e).
+  Non exploitable : filet contre une régression accidentelle, pas une barrière.
+- Info : 0 vulnérabilité ; `filter` anti-symlink en place dans `assemble.mjs`.

@@ -1,42 +1,1449 @@
 ---
-// Page provisoire : le builder la remplace en suivant specs/reunion-metre.md.
+// Look 01 · Réunion-mètre (specs/reunion-metre.md). Une seule page, trois écrans
+// (Configuration, Compteur, Ticket) choisis par le script d'après le lien. Le HTML livré est
+// l'écran Configuration vierge ; tout texte venant du lien est écrit par le script, en
+// textContent.
+import "@fontsource/doto/900.css";
+import "@fontsource-variable/archivo/wdth.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/700.css";
 import CollectionTag from "@paperasse/shared/CollectionTag.astro";
+import { NBSP } from "@paperasse/shared/typography";
+import { LIMITS, ROLES, SETUP_DEFAULT_TARIFF, TARIFFS, TARIFF_CODES } from "../lib/meeting";
+import { TEXT, rateText } from "../lib/messages";
+
+const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
 ---
 
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Réunion-mètre · Collection Paperasse</title>
-    <meta name="description" content="Ce que coûte votre réunion, en direct." />
+    <title>{TEXT.pageTitle}</title>
+    <meta name="description" content={TEXT.description} />
   </head>
   <body>
-    <main>
-      <p class="look">Look 01</p>
-      <h1>Réunion-mètre</h1>
-      <p>Look en cours de couture. Revenez après le défilé.</p>
+    <main id="app" data-screen="setup">
+      {/* Bloc sans gap : une région live vide n'y occupe aucune place, et reste dans l'arbre
+          d'accessibilité pour que ses messages soient annoncés. */}
+      <div class="top">
+        <header class="masthead">
+          <div class="brand">
+            <h1>{TEXT.heading}</h1>
+            <p class="subtitle free-text" id="subtitle">
+              {TEXT.tagline}
+            </p>
+          </div>
+          <div class="actions">
+            <button type="button" class="ghost-button" id="copy-meter" hidden>
+              {TEXT.copyMeter}
+            </button>
+            <button type="button" class="ghost-button" id="copy-ticket" hidden>
+              {TEXT.copyTicket}
+            </button>
+            {/* Confirmation de copie, à côté du bouton (spec, « Écrans ») : jamais par-dessus le
+                ticket. Vide, elle ne prend aucune place mais reste une région live. */}
+            <p class="copy-status" id="copy-status" aria-live="polite"></p>
+            {/* Enseigne de taxi : OCCUPÉ pendant le Compteur (bouton Terminer). */}
+            <button type="button" class="sign sign-busy" id="finish" hidden>
+              <span class="sign-lamp" aria-hidden="true">
+                {TEXT.busyLamp}
+              </span>
+              <span class="sign-action">{TEXT.finish}</span>
+            </button>
+            <button type="button" class="sign sign-free" id="new-meeting" hidden>
+              <span class="sign-lamp" aria-hidden="true">
+                {TEXT.freeLamp}
+              </span>
+              <span class="sign-action">{TEXT.newMeeting}</span>
+            </button>
+          </div>
+        </header>
+        {/* Messages du lien. Sur le Compteur en grand écran, cette pile flotte sous le ticket :
+            elle ne prend jamais de hauteur à la liste (CA-11), et « Fermer » la retire. */}
+        <div class="feedback">
+          <div class="notices">
+            <div class="notices-text" role="status">
+              <ul class="messages" id="notices"></ul>
+            </div>
+            <button type="button" class="dismiss" id="dismiss-notices" hidden>
+              {TEXT.dismiss}
+              <span class="visually-hidden">{` ${TEXT.dismissContext}`}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div class="panel">
+          <section class="board" id="board" aria-labelledby="amount-heading" hidden>
+            <h2 class="label" id="amount-heading">
+              {TEXT.amountHeading}
+            </h2>
+            <div class="board-main">
+              <div class="led">
+                {/* Le résumé accessible est dans aria-label (au plus toutes les 30 s, CA-8) :
+                  les chiffres qui changent chaque seconde sont masqués aux lecteurs d'écran. */}
+                <div
+                  class="led-readout"
+                  id="timer"
+                  role="timer"
+                  aria-live="off"
+                  aria-label="0 euro"
+                >
+                  <span class="led-currency" aria-hidden="true">
+                    €
+                  </span>
+                  <span class="led-digits" id="amount" aria-hidden="true" data-ghost="8,88">
+                    0,00
+                  </span>
+                </div>
+                {/* Alertes CL-2 et CL-6 sur la ligne de l'afficheur, comme le voyant d'un
+                    taximètre : elles ne poussent pas la liste des participants. */}
+                <div class="led-status" role="status">
+                  <ul class="alerts" id="alerts"></ul>
+                </div>
+              </div>
+              <dl class="stats">
+                <div class="stat">
+                  <dt>{TEXT.durationLabel}</dt>
+                  <dd id="clock">00:00:00</dd>
+                </div>
+                <div class="stat">
+                  <dt>{TEXT.countLabel}</dt>
+                  <dd id="count">00</dd>
+                </div>
+                <div class="stat">
+                  <dt>{TEXT.hourlyLabel}</dt>
+                  <dd id="hourly">0</dd>
+                </div>
+              </dl>
+            </div>
+            <p class="ended ticket-only">{TEXT.ended}</p>
+          </section>
+
+          <form class="controls" id="controls" novalidate>
+            <h2 class="label setup-only" id="setup-heading" tabindex="-1">
+              {TEXT.setupHeading}
+            </h2>
+            <p class="field setup-only">
+              <label for="title">{TEXT.titleLabel}</label>
+              <input
+                id="title"
+                type="text"
+                autocomplete="off"
+                placeholder={TEXT.titlePlaceholder}
+                aria-describedby="title-error"
+              />
+              <span class="error" id="title-error"></span>
+            </p>
+
+            <fieldset class="tariffs">
+              <legend class="label">{TEXT.tariffLegend}</legend>
+              <div class="tariff-options">
+                {tariffs.map((tariff) => (
+                  <label class="tariff">
+                    <input
+                      class="tariff-input"
+                      type="radio"
+                      name="tariff"
+                      value={tariff.code}
+                      checked={tariff.code === SETUP_DEFAULT_TARIFF}
+                    />
+                    <span class="tariff-code">{tariff.code}</span>
+                    <span class="tariff-name">{tariff.name}</span>
+                    <span class="tariff-factor">{tariff.factor}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* Bloc sans gap : l'erreur vide n'y prend aucune place mais reste dans l'arbre
+                d'accessibilité, pour que la région live annonce ce qui s'y écrit. */}
+            <div class="people-block">
+              <fieldset class="people">
+                <legend class="label">{TEXT.peopleLegend}</legend>
+                <ol class="people-list" id="people" role="list"></ol>
+                <p class="people-footer">
+                  <button type="button" class="add-person" id="add-person">
+                    {TEXT.addPerson}
+                  </button>
+                  <span class="people-full" id="people-full" hidden>
+                    {TEXT.peopleFull}
+                  </span>
+                </p>
+              </fieldset>
+
+              {/* Hors du bloc de lancement : visible aussi pendant le Compteur. */}
+              <p class="error form-error" id="form-error" aria-live="polite"></p>
+            </div>
+
+            <div class="launch setup-only">
+              <p class="hourly-preview">
+                {`${TEXT.hourlyPreview}${NBSP}: `}
+                <strong id="hourly-preview">{`0${NBSP}€`}</strong>
+              </p>
+              {/* Enseigne de taxi : LIBRE avant la réunion (bouton Lancer). */}
+              <button type="submit" class="sign sign-free" id="launch">
+                <span class="sign-lamp" aria-hidden="true">
+                  {TEXT.freeLamp}
+                </span>
+                <span class="sign-action">{TEXT.launch}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <aside class="receipt" id="receipt" aria-labelledby="receipt-heading" hidden>
+          <div class="paper">
+            <h2 class="receipt-heading" id="receipt-heading">
+              <span aria-hidden="true">***</span>
+              {TEXT.receiptHeading}
+              <span aria-hidden="true">***</span>
+            </h2>
+            <p class="receipt-title free-text" id="receipt-title" hidden></p>
+            <p class="receipt-meta" id="receipt-when"></p>
+            <p class="receipt-meta">{`${TEXT.deviceTime} · ${TEXT.receiptCounter}`}</p>
+            <hr />
+            <div class="ticket-only">
+              <dl class="receipt-lines">
+                <div class="receipt-line">
+                  <dt>{TEXT.receiptDuration}</dt>
+                  <dd id="receipt-duration">00:00:00</dd>
+                </div>
+              </dl>
+              <p class="receipt-section">{TEXT.receiptPeople}</p>
+              <dl class="receipt-lines" id="receipt-people"></dl>
+              <hr />
+            </div>
+            <dl class="receipt-lines" id="receipt-lines"></dl>
+            <hr />
+            <dl class="receipt-lines">
+              <div class="receipt-line receipt-total">
+                <dt>{TEXT.total}</dt>
+                <dd id="receipt-total">0,00 €</dd>
+              </div>
+              <div class="receipt-line receipt-small">
+                <dt>{TEXT.decisions}</dt>
+                <dd>{TEXT.decisionsValue}</dd>
+              </div>
+              <div class="receipt-line receipt-small">
+                <dt>{TEXT.mail}</dt>
+                <dd id="receipt-mail">PEUT-ÊTRE</dd>
+              </div>
+            </dl>
+            <div class="barcode" aria-hidden="true"></div>
+            <p class="receipt-thanks">{TEXT.receiptThanks}</p>
+          </div>
+          <div class="tear" aria-hidden="true"></div>
+        </aside>
+      </div>
+
+      <noscript>
+        <p class="message">{TEXT.noScript}</p>
+      </noscript>
     </main>
+
+    {/* Repli de copie (CA-7) : modal, Échap ou « Fermer » le referment, le focus revient au
+        bouton de copie (scripts/copy.ts). */}
+    <dialog class="copy-dialog" id="copy-dialog" aria-labelledby="copy-dialog-title">
+      <h2 class="copy-dialog-title" id="copy-dialog-title">
+        {TEXT.copyDialogTitle}
+      </h2>
+      <p class="copy-dialog-text">{TEXT.copyRefused}</p>
+      <p class="copy-dialog-field">
+        <label for="copy-field">{TEXT.linkField}</label>
+        <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
+      </p>
+      <form class="copy-dialog-actions" method="dialog">
+        <button type="submit" class="ghost-button">
+          {TEXT.dismiss}
+        </button>
+      </form>
+    </dialog>
+
     <CollectionTag slug="reunion-metre" />
+
+    <datalist id="roles">
+      {ROLES.map((role) => (
+        <option value={role.label} label={rateText(role.rate)} />
+      ))}
+    </datalist>
+
+    {/* Une ligne participant, clonée par le script (pas d'innerHTML). */}
+    <template id="person-template">
+      <li class="person">
+        <fieldset class="person-fields">
+          <legend class="visually-hidden" data-slot="legend"></legend>
+          <span class="person-who">
+            <label class="person-label" data-slot="who-label">
+              {TEXT.whoLabel}
+            </label>
+            <input
+              class="person-input"
+              data-slot="who"
+              type="text"
+              list="roles"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </span>
+          <span class="person-rate">
+            <label class="person-label" data-slot="rate-label">
+              {TEXT.rateLabel}
+            </label>
+            <span class="rate-box">
+              <input
+                class="person-input rate-input"
+                data-slot="rate"
+                type="number"
+                inputmode="numeric"
+                min={LIMITS.minRate}
+                max={LIMITS.maxRate}
+                step="1"
+              />
+              <span class="rate-unit" aria-hidden="true">
+                €/h
+              </span>
+            </span>
+          </span>
+          <button type="button" class="remove" data-slot="remove">
+            {TEXT.remove}
+            <span class="visually-hidden" data-slot="remove-context"></span>
+          </button>
+          <span class="error person-error" data-slot="error"></span>
+        </fieldset>
+      </li>
+    </template>
   </body>
 </html>
 
+<script>
+  import "../scripts/app";
+</script>
+
 <style is:global>
-  body {
-    margin: 0;
-    padding: 2rem 1rem;
-    font-family: system-ui, sans-serif;
-    background: #ffffff;
-    color: #0e0e0e;
+  /* Tokens de specs/reunion-metre.md (« Design »). */
+  :root {
+    --bg: #16120e;
+    --panel: #211b15;
+    --led: #0b0907;
+    --amber: #ffb000;
+    --ghost: rgb(255 176 0 / 0.09);
+    --text: #f3e9d6;
+    --muted: #a8977a;
+    --paper: #fafaf7;
+    --ink: #1a1714;
+    --chip: #2e261d;
+    --line: #3a2f24;
+    --glow: 0 0 18px rgb(255 176 0 / 0.45);
+    --font-label: "Archivo Variable", "Archivo", system-ui, sans-serif;
+    --font-digits: "Doto", ui-monospace, monospace;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+    /* Étiquette de collection sur fond sombre. */
+    --tag-bg: var(--panel);
+    --tag-fg: var(--text);
+    color-scheme: dark;
   }
 
+  html {
+    background: var(--bg);
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-label);
+    font-stretch: 80%;
+    line-height: 1.35;
+  }
+
+  /* `hidden` gagne toujours sur les display posés par les styles du look. */
+  [hidden] {
+    display: none !important;
+  }
+
+  /* Masqué à l'écran, lu par les lecteurs d'écran. Les <label> des lignes participant restent
+     ainsi sur chaque ligne : la première sert d'en-tête de colonnes, et le Compteur les remplace
+     par l'unité « €/h ». */
+  .visually-hidden,
+  .person:not(:first-child) .person-label,
+  main[data-screen="meter"] .person-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  button,
+  input {
+    font: inherit;
+    font-stretch: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--amber);
+    outline-offset: 2px;
+  }
+</style>
+
+<style>
   main {
-    max-width: 40rem;
+    box-sizing: border-box;
+    max-width: 82rem;
+    margin: 0 auto;
+    padding: 1rem 1rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+
+  /* ---------- En-tête ---------- */
+
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+  }
+
+  .brand {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.875rem;
+    min-width: 0;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.875rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+
+  .subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+
+  /* Textes libres venant du lien (titre, libellés) : ce qui déborde est coupé, pour qu'un texte
+     « zalgo » ou sans espace ne recouvre ni un montant ni une ligne voisine, et n'élargisse pas
+     la page (CLAUDE.md, Sécurité). La petite marge laisse respirer les accents légitimes. */
+  .free-text,
+  .receipt-lines :global(dt) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    overflow: clip;
+    overflow-clip-margin: 0.2em;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem;
+  }
+
+  .ghost-button {
+    min-height: 48px;
+    padding: 0 1rem;
+    border: 1.5px solid var(--muted);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.9375rem;
+  }
+
+  .ghost-button:hover {
+    border-style: dashed;
+  }
+
+  /* ---------- Enseigne de taxi (module signature) ---------- */
+
+  .sign {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.125rem;
+    min-height: 52px;
+    min-width: 11rem;
+    padding: 0.375rem 1.375rem;
+    border: 2px solid var(--amber);
+    /* Toit arrondi, base droite : le lumineux posé sur le taxi. */
+    border-radius: 12px 12px 4px 4px;
+    font-weight: 800;
+  }
+
+  .sign-lamp {
+    font-size: 1rem;
+    letter-spacing: 0.2em;
+    line-height: 1.1;
+  }
+
+  .sign-action {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .sign-free {
+    background: transparent;
+    color: var(--amber);
+  }
+
+  .sign-free:hover .sign-action {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .sign-busy {
+    background: var(--amber);
+    color: var(--bg);
+    box-shadow: var(--glow);
+    animation: lamp 2.4s ease-in-out infinite;
+  }
+
+  .sign-busy:hover .sign-action {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  @keyframes lamp {
+    50% {
+      box-shadow: 0 0 6px rgb(255 176 0 / 0.25);
+    }
+  }
+
+  /* ---------- Messages ---------- */
+
+  /* Blocs sans gap : un message vide ne prend aucune place (CA-11) mais sa région live reste
+     dans l'arbre d'accessibilité, pour que ce qui s'y écrit ensuite soit annoncé. */
+  .top,
+  .feedback {
+    display: block;
+  }
+
+  .messages,
+  .alerts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .message,
+  .notices:has(li) {
+    margin: 0.625rem 0 0;
+    padding: 0.5rem 0.875rem;
+    border-left: 4px solid var(--amber);
+    background: var(--panel);
+    font-size: 0.9375rem;
+  }
+
+  .notices {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 0.875rem;
+  }
+
+  .notices:has(li) {
+    padding-block: 0.375rem;
+    padding-right: 0.375rem;
+  }
+
+  .notices-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .messages :global(li + li) {
+    margin-top: 0.25rem;
+  }
+
+  .dismiss {
+    flex: none;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 0.875rem;
+    border: 1.5px solid var(--muted);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.875rem;
+  }
+
+  .dismiss:hover {
+    border-style: dashed;
+  }
+
+  .ended {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  /* Confirmation de copie : coche ET texte, jamais la couleur seule. Vide, elle annule l'écart
+     que la rangée de boutons lui donne. */
+  .copy-status {
+    margin: 0;
+    color: var(--amber);
+    font-size: 0.875rem;
+    font-weight: 700;
+  }
+
+  .copy-status:empty {
+    margin-left: -0.625rem;
+  }
+
+  .copy-status:not(:empty)::before {
+    content: "✓ ";
+  }
+
+  /* ---------- Repli de copie ---------- */
+
+  .copy-dialog {
+    box-sizing: border-box;
+    width: min(34rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    padding: 1.25rem;
+    border: 2px solid var(--amber);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--text);
+  }
+
+  .copy-dialog::backdrop {
+    background: rgb(0 0 0 / 0.7);
+  }
+
+  .copy-dialog-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .copy-dialog-text {
+    margin: 0 0 0.875rem;
+    font-size: 0.9375rem;
+  }
+
+  .copy-dialog-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0 0 1rem;
+  }
+
+  .copy-dialog-field label {
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .copy-dialog-field input {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+
+  .copy-dialog-actions {
+    display: flex;
+    justify-content: end;
+    margin: 0;
+  }
+
+  /* ---------- Disposition des écrans ---------- */
+
+  .layout {
+    display: grid;
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  main[data-screen="setup"] .top,
+  main[data-screen="setup"] .layout {
+    max-width: 56rem;
+    width: 100%;
     margin: 0 auto;
   }
 
-  .look {
-    font-family: ui-monospace, monospace;
-    letter-spacing: 0.12em;
+  @media (min-width: 60rem) {
+    main[data-screen="meter"] .layout,
+    main[data-screen="ticket"] .layout {
+      grid-template-columns: minmax(0, 1fr) 21.5rem;
+    }
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+    padding: 1.25rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+  }
+
+  main:not([data-screen="setup"]) .setup-only {
+    display: none;
+  }
+
+  main:not([data-screen="ticket"]) .ticket-only {
+    display: none;
+  }
+
+  main[data-screen="ticket"] .controls {
+    display: none;
+  }
+
+  .label {
+    margin: 0;
+    padding: 0;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
+  }
+
+  /* ---------- Afficheur LED (module signature) ---------- */
+
+  .board {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .board-main {
+    display: grid;
+    gap: 0.625rem;
+  }
+
+  .led {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0.875rem 1.125rem;
+    background: var(--led);
+    border-radius: 12px;
+    box-shadow: inset 0 2px 12px rgb(0 0 0 / 0.8);
+    overflow: hidden;
+  }
+
+  /* Voyant d'alerte de l'afficheur (CL-2, CL-6) : icône ET texte, jamais la couleur seule. */
+  .alerts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+  }
+
+  .alerts :global(li) {
+    color: var(--amber);
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .alerts :global(li:first-child) {
+    margin-top: 0.5rem;
+  }
+
+  .alerts :global(li)::before {
+    content: "⚠ ";
+  }
+
+  .led-readout {
+    /* Doto est à chasse fixe (0,6 em) : la taille suit le nombre de caractères (--digits,
+       posé par le script) pour que le montant tienne toujours sur une ligne. */
+    --digits: 4;
+    display: flex;
+    align-items: baseline;
+    gap: 0.15em;
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: min(5.5rem, calc(100cqi / (var(--digits) * 0.6 + 0.4)));
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--amber);
+  }
+
+  .led-currency {
+    font-size: 0.32em;
+  }
+
+  .led-digits {
+    position: relative;
+    z-index: 0;
+    text-shadow: var(--glow);
+  }
+
+  /* Les « 8 » fantômes, derrière les chiffres allumés (CA-9). Pseudo-élément : décoratif,
+     hors de l'arbre d'accessibilité et de la sélection. */
+  .led-digits::before {
+    content: attr(data-ghost);
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    color: var(--ghost);
+    text-shadow: none;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 0.625rem;
+    margin: 0;
+  }
+
+  .stat {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem 0.875rem;
+    background: var(--led);
+    border-radius: 10px;
+  }
+
+  .stat dt {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .stat dd {
+    margin: 0;
+    color: var(--amber);
+    font-family: var(--font-digits);
+    font-weight: 900;
+    /* « 00:42:17 » : 8 caractères de 0,6 em, qui doivent tenir dans la case à 360 px. */
+    font-size: min(1.75rem, 100cqi / 5);
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  /* Grand écran : les stats se rangent à droite de l'afficheur, sur sa hauteur, au lieu de
+     prendre une rangée en dessous (CA-11). */
+  @media (min-width: 60rem) {
+    .board-main {
+      grid-template-columns: minmax(0, 1fr) 15.5rem;
+    }
+
+    .stats {
+      grid-template-columns: 1fr;
+      grid-auto-rows: 1fr;
+      gap: 0.375rem;
+    }
+
+    .stat {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.25rem 0.75rem;
+    }
+
+    .stat dd {
+      font-size: 1.5rem;
+    }
+  }
+
+  /* ---------- Formulaire ---------- */
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0;
+  }
+
+  .field label {
+    font-weight: 600;
+  }
+
+  input[type="text"],
+  input[type="number"] {
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+    border: 1.5px solid var(--muted);
+    border-radius: 8px;
+    background: var(--led);
+    color: var(--text);
+    font-size: 1rem;
+  }
+
+  input::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+
+  input[aria-invalid="true"] {
+    border-style: dashed;
+    border-width: 2px;
+  }
+
+  .error {
+    color: var(--text);
+    font-size: 0.875rem;
+  }
+
+  .error:empty {
+    display: none;
+  }
+
+  .error:not(:empty)::before {
+    content: "⚠ ";
+    color: var(--amber);
+  }
+
+  fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .tariffs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .tariff-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .tariff {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0 0.875rem;
+    border: 1.5px solid var(--amber);
+    border-radius: 8px;
+    color: var(--amber);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+  }
+
+  .tariff-input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+  }
+
+  /* Choisi : fond plein ET coche, jamais la couleur seule. */
+  .tariff:has(.tariff-input:checked) {
+    background: var(--amber);
+    color: var(--bg);
+  }
+
+  .tariff:has(.tariff-input:checked)::before {
+    content: "✓";
+    font-weight: 800;
+  }
+
+  .tariff:has(.tariff-input:focus-visible) {
+    outline: 3px solid var(--amber);
+    outline-offset: 3px;
+  }
+
+  .tariff-code {
+    font-weight: 800;
+  }
+
+  .tariff-factor {
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: 1rem;
+  }
+
+  .people {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+  }
+
+  .people-list {
+    display: grid;
+    gap: 0.625rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .person-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 7.5rem auto;
+    align-items: end;
+    gap: 0.25rem 0.5rem;
+  }
+
+  .person-who,
+  .person-rate {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .person-label {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .person-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Taux en chiffres Doto, comme tout chiffre hors ticket. */
+  input.rate-input {
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: 1.125rem;
+  }
+
+  .rate-box {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .rate-unit {
+    display: none;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .remove {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 0.75rem;
+    border: 1.5px solid var(--muted);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.875rem;
+  }
+
+  .remove:hover:not(:disabled) {
+    border-style: dashed;
+  }
+
+  .remove:disabled {
+    border-style: dotted;
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+
+  .person-error {
+    grid-column: 1 / -1;
+  }
+
+  @media (max-width: 39.99rem) {
+    .person-fields,
+    main[data-screen="meter"] .person-fields {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .person-who {
+      grid-column: 1 / -1;
+    }
+  }
+
+  .people-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.875rem;
+    margin: 0;
+  }
+
+  .add-person {
+    min-height: 44px;
+    padding: 0 0.875rem;
+    border: 1.5px dashed var(--muted);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.875rem;
+  }
+
+  .add-person:hover:not(:disabled) {
+    border-style: solid;
+  }
+
+  .add-person:disabled {
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+
+  .people-full {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  .launch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--line);
+  }
+
+  .hourly-preview {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .hourly-preview strong {
+    color: var(--amber);
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: 1.375rem;
+  }
+
+  .people-block {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Toujours dans l'arbre d'accessibilité (région live) : vide, il ne prend aucune place. */
+  .form-error,
+  .form-error:empty {
+    display: block;
+    margin: 0;
+  }
+
+  .form-error:not(:empty) {
+    margin-top: 0.5rem;
+  }
+
+  /* Compteur : participants en lignes compactes sur deux colonnes, unité « €/h » visible. */
+  main[data-screen="meter"] .person-fields {
+    grid-template-columns: minmax(0, 1fr) 6.75rem auto;
+    align-items: center;
+  }
+
+  main[data-screen="meter"] .rate-unit {
+    display: inline;
+  }
+
+  main[data-screen="meter"] .controls {
+    gap: 0.75rem;
+  }
+
+  @media (min-width: 40rem) {
+    main[data-screen="meter"] .people {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 0.5rem 1rem;
+    }
+
+    /* Une légende flottante est une boîte ordinaire : elle peut devenir un élément de grille. */
+    main[data-screen="meter"] .people legend {
+      float: left;
+      grid-row: 1;
+      grid-column: 1;
+    }
+
+    main[data-screen="meter"] .people-footer {
+      grid-row: 1;
+      grid-column: 2;
+      justify-content: end;
+    }
+
+    main[data-screen="meter"] .people-list {
+      grid-row: 2;
+      grid-column: 1 / -1;
+      /* En haut de la place libre : la marge laissée pour les messages reste sous la liste. */
+      align-self: start;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem 0.875rem;
+    }
+  }
+
+  /* CA-11 : à partir de 960 × 600, le Compteur tient dans la fenêtre. Seule la liste des
+     participants défile, dans son cadre ; le montant reste toujours visible. L'étiquette de
+     collection, après <main>, peut passer sous la ligne de flottaison. */
+  @media (min-width: 60rem) and (min-height: 37.5rem) {
+    main[data-screen="meter"] {
+      height: 100vh;
+      height: 100dvh;
+      padding-bottom: 1rem;
+    }
+
+    main[data-screen="meter"] .layout {
+      flex: 1 1 auto;
+      min-height: 0;
+      align-items: stretch;
+    }
+
+    main[data-screen="meter"] .panel,
+    main[data-screen="meter"] .receipt {
+      min-height: 0;
+      max-height: 100%;
+    }
+
+    /* Dernier recours, si des messages du lien prennent toute la hauteur : le panneau défile
+       plutôt que de laisser ses blocs se chevaucher. */
+    main[data-screen="meter"] .panel {
+      overflow-y: auto;
+    }
+
+    main[data-screen="meter"] .controls,
+    main[data-screen="meter"] .people-block,
+    main[data-screen="meter"] .people {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    /* Messages du lien : une pile qui flotte en bas de la colonne du ticket,
+       là où le ticket en cours laisse de la place. Elle ne prend aucune hauteur à la liste des
+       participants, quel que soit le nombre de messages (CA-11) ; « Fermer » la retire. */
+    main[data-screen="meter"] {
+      position: relative;
+    }
+
+    main[data-screen="meter"] .feedback {
+      position: absolute;
+      z-index: 1;
+      right: 1rem;
+      bottom: 1rem;
+      box-sizing: border-box;
+      width: 21.5rem;
+      max-height: calc(100% - 8rem);
+      overflow-y: auto;
+    }
+
+    main[data-screen="meter"] .notices:has(li) {
+      outline: 1px solid var(--line);
+      box-shadow: 0 8px 28px rgb(0 0 0 / 0.65);
+    }
+
+    main[data-screen="meter"] .people-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: 100%;
+      overflow-y: auto;
+      align-content: start;
+      /* Place pour le contour de focus des champs, que le défilement rognerait. */
+      padding: 4px;
+      margin: -4px;
+    }
+
+    main[data-screen="meter"] .receipt {
+      overflow-y: auto;
+    }
+
+    /* En-tête sur une seule rangée : le titre y tient sur une ligne, coupé par des points de
+       suspension. Il est lu en entier par les lecteurs d'écran et affiché en entier en tête du
+       ticket, juste à côté. Sans ça, un long titre fait passer l'en-tête sur deux rangées et
+       vole sa hauteur au ticket (960 × 600, 1366 × 768 à 125 %). */
+    main[data-screen="meter"] .brand {
+      flex: 1 1 0;
+      flex-wrap: nowrap;
+    }
+
+    main[data-screen="meter"] h1 {
+      flex: none;
+    }
+
+    main[data-screen="meter"] .subtitle {
+      flex: 1 1 0;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* Ticket en cours, resserré : il tient dans sa colonne sans défiler, même avec un titre de
+       plusieurs lignes. Un cadre qui défile sans rien de focalisable ne serait pas lisible au
+       clavier. */
+    main[data-screen="meter"] .paper {
+      gap: 0.3125rem;
+      padding-block: 1rem 0.75rem;
+    }
+
+    main[data-screen="meter"] .barcode {
+      height: 28px;
+    }
+  }
+
+  /* ---------- Ticket thermique (module signature) ---------- */
+
+  .receipt {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .paper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.25rem 1.125rem 1rem;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-stretch: normal;
+  }
+
+  .paper p {
+    margin: 0;
+  }
+
+  .receipt-heading {
+    display: flex;
+    justify-content: center;
+    gap: 1ch;
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  .receipt-title {
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .receipt-meta {
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  .receipt-section {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+  }
+
+  hr {
+    width: 100%;
+    margin: 0.125rem 0;
+    border: 0;
+    border-top: 1.5px dashed var(--ink);
+  }
+
+  .receipt-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+  }
+
+  .ticket-only {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .receipt-line,
+  .receipt-lines :global(.receipt-line) {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .receipt-lines :global(dd) {
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .receipt-total {
+    font-weight: 700;
+    font-size: 1rem;
+  }
+
+  .receipt-small {
+    font-size: 0.75rem;
+  }
+
+  /* Code-barres décoratif. */
+  .barcode {
+    height: 40px;
+    margin-top: 0.25rem;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--ink) 0 2px,
+      transparent 2px 4px,
+      var(--ink) 4px 5px,
+      transparent 5px 8px,
+      var(--ink) 8px 11px,
+      transparent 11px 12px
+    );
+  }
+
+  .receipt-thanks {
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  /* Bord dentelé du papier arraché. */
+  .tear {
+    flex: none;
+    height: 10px;
+    background:
+      linear-gradient(135deg, var(--paper) 33%, transparent 33%) 0 0 / 14px 14px,
+      linear-gradient(225deg, var(--paper) 33%, transparent 33%) 0 0 / 14px 14px;
+  }
+
+  /* ---------- Mouvement réduit (CA-4) : ni animation ni lueur, le chiffre continue. ---------- */
+
+  @media (prefers-reduced-motion: reduce) {
+    .sign-busy,
+    .led-digits {
+      animation: none;
+      box-shadow: none;
+      text-shadow: none;
+    }
   }
 </style>

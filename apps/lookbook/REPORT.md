@@ -1,4 +1,23 @@
-# Rapport lookbook · retouche « tout sur un écran » · tour 1
+# Rapport lookbook · retouche « tout sur un écran » · tour 2 (final)
+
+## Verdict
+
+**Fini.** Les 6 points de la définition de « fini » sont vrais : CA-1 à CA-7 couverts et verts,
+pas de CL, `pnpm verify` vert relancé par l'orchestrateur (232 unitaires, 280 e2e, 72 sautés
+volontairement), reviewer « Prêt », security sans point critique ou élevé, axe sans violation.
+`pnpm build` + `check-csp` : CSP de production correcte sur les 4 pages.
+
+Tour 2 : titre calé sur la largeur de l'affiche (container query), vérifié avec une police
+navigateur à 24 px (nouveau test via `Page.setFontSizes`) ; pistes partagées au lieu de
+`subgrid` ; aperçus alignés ; `posterTitle` en chaîne. Le tour 2 ne touchant que du CSS et un
+test, seul le reviewer l'a relu (CSP et dépendances inchangées, confirmé par `check-csp`).
+
+Restent ouverts (mineurs) : test d'alignement des fiches, position du titre (bords) dans le test
+de police agrandie, découpage de `tests/e2e/lookbook/tester.spec.ts` (passe de ménage dédiée).
+
+---
+
+# Historique : tour 1
 
 ## Verdict
 

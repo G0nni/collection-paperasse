@@ -2820,3 +2820,740 @@ test.describe("reunion-metre · tester · tour 2", () => {
     });
   }
 });
+
+// =============================================================================================
+// Tour 3 : décisions de l'orchestrateur après le tour 2 (spec et CLAUDE.md, commit 23689ff).
+// Écrits depuis la spec avant lecture du diff du builder ; sélecteurs par rôle et nom accessible.
+// =============================================================================================
+
+/** Le repli de copie : un <dialog> modal (spec, « Écrans », repli de copie). */
+function copyDialog(page: Page): Locator {
+  return page.getByRole("dialog");
+}
+
+function copyField(page: Page): Locator {
+  return copyDialog(page).getByRole("textbox", { name: /Lien à copier/u });
+}
+
+function copiedStatus(page: Page): Locator {
+  return page.getByText(/Lien copié/u);
+}
+
+/** Les notices du lien : éléments de liste des régions status / alert. */
+function notices(page: Page): Locator {
+  return messages(page).getByRole("listitem");
+}
+
+/** Bouton « Fermer » des notices (hors du dialogue de copie). */
+function closeNoticesButton(page: Page): Locator {
+  return page.getByRole("button", { name: /^Fermer/u }).filter({ visible: true });
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+function intersects(a: Box, b: Box): boolean {
+  const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return overlapX > 0.5 && overlapY > 0.5;
+}
+
+/**
+ * Lignes du ticket (termes, définitions, paragraphes) qu'on ne peut pas lire : coupées par un
+ * ancêtre qui masque son débordement sans pouvoir défiler au clavier, ou hors du document.
+ */
+async function unreadableTicketLines(page: Page): Promise<string[]> {
+  return ticket(page).evaluate((root) => {
+    const found: string[] = [];
+    const focusable = (element: HTMLElement) =>
+      element.tabIndex >= 0 ||
+      element.querySelector("a[href], button, input, select, textarea, [tabindex]") !== null;
+    for (const line of root.querySelectorAll("dt, dd, p, h2, h3, li")) {
+      if (!(line instanceof HTMLElement) || !line.checkVisibility()) continue;
+      const box = line.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      const text = (line.textContent ?? "").replace(/\s+/gu, " ").trim().slice(0, 40);
+      if (box.top + window.scrollY < -0.5 || box.left + window.scrollX < -0.5) {
+        found.push(`« ${text} » hors du document`);
+        continue;
+      }
+      for (
+        let ancestor = line.parentElement;
+        ancestor !== null && ancestor !== document.body;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+        const clip = ancestor.getBoundingClientRect();
+        const inside =
+          box.top >= clip.top - 1 &&
+          box.bottom <= clip.bottom + 1 &&
+          box.left >= clip.left - 1 &&
+          box.right <= clip.right + 1;
+        if (inside) continue;
+        const scrolls =
+          /(auto|scroll)/u.test(style.overflowY) && ancestor.scrollHeight > ancestor.clientHeight;
+        if (!scrolls || !focusable(ancestor)) {
+          found.push(
+            `« ${text} » coupée par ${ancestor.nodeName}${ancestor.id === "" ? "" : `#${ancestor.id}`} (${style.overflowY}, ${Math.round(box.bottom - clip.bottom)} px)`,
+          );
+        }
+        break;
+      }
+    }
+    return found;
+  });
+}
+
+/** Marques combinantes au-dessus et au-dessous, pour un texte « zalgo » qui s'étale. */
+const MARKS_ABOVE = [0x030d, 0x030e, 0x0304, 0x0305, 0x033f, 0x0311, 0x0306, 0x0310, 0x0352];
+const MARKS_BELOW = [0x0316, 0x0317, 0x0318, 0x0319, 0x031c, 0x031d, 0x031e, 0x031f, 0x0320];
+
+function zalgo(base: string, count: number): string {
+  return [...base]
+    .map((char, index) => {
+      const marks = index % 2 === 0 ? MARKS_ABOVE : MARKS_BELOW;
+      return (
+        char +
+        String.fromCodePoint(
+          ...Array.from({ length: count }, (_, k) => marks[k % marks.length] ?? 0x0301),
+        )
+      );
+    })
+    .join("");
+}
+
+/** Plus longue suite de marques combinantes consécutives. */
+function longestMarkRun(text: string): number {
+  let longest = 0;
+  let run = 0;
+  for (const char of text) {
+    run = /\p{M}/u.test(char) ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  return longest;
+}
+
+test.describe("reunion-metre · tester · tour 3", () => {
+  // -------------------------------------------------------------------------------------------
+  // Repli de copie : <dialog> modal (spec, « Écrans » ; CA-7)
+  // -------------------------------------------------------------------------------------------
+
+  for (const [screen, search, copyButton] of [
+    ["Compteur", query({ s: NOW - 600, n: "Point rapide" }), copyMeterButton],
+    ["Ticket", query({ s: NOW - 600, e: NOW - 60, n: "Rétro" }), copyTicketButton],
+  ] as const) {
+    test(`CA-7 · repli (${screen}) : <dialog> modal, champ « Lien à copier » focalisé, tout sélectionné, avec le lien courant`, async ({
+      page,
+    }) => {
+      await refuseClipboard(page);
+      await openFixed(page, search);
+      await copyButton(page).click();
+      await expect(copyDialog(page)).toBeVisible();
+      const native = await copyDialog(page).evaluate((element) => ({
+        tag: element.nodeName,
+        modal: element.matches(":modal"),
+      }));
+      expect(native).toEqual({ tag: "DIALOG", modal: true });
+      await expect(copyField(page)).toHaveValue(page.url());
+      await expect(copyField(page)).toBeFocused();
+      const selection = await copyField(page).evaluate((element) =>
+        element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+          ? [element.selectionStart, element.selectionEnd, element.value.length]
+          : [],
+      );
+      expect(selection).toHaveLength(3);
+      expect(selection[0]).toBe(0);
+      expect(selection[1]).toBe(selection[2]);
+      // Le presse-papiers a échoué : rien ne doit prétendre le contraire.
+      await expect(copiedStatus(page).filter({ visible: true })).toHaveCount(0);
+    });
+
+    test(`CA-7 · repli (${screen}) : « Fermer » referme le dialogue et rend le focus au bouton de copie`, async ({
+      page,
+    }) => {
+      await refuseClipboard(page);
+      await openFixed(page, search);
+      await copyButton(page).click();
+      await copyDialog(page)
+        .getByRole("button", { name: /^Fermer/u })
+        .click();
+      await expect(copyDialog(page)).toBeHidden();
+      await expect(copyButton(page)).toBeFocused();
+    });
+
+    test(`CA-7 · repli (${screen}) : Échap referme le dialogue et rend le focus au bouton de copie`, async ({
+      page,
+    }) => {
+      await refuseClipboard(page);
+      await openFixed(page, search);
+      await copyButton(page).click();
+      await expect(copyField(page)).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(copyDialog(page)).toBeHidden();
+      await expect(copyButton(page)).toBeFocused();
+    });
+
+    test(`CA-7 · repli (${screen}) au clavier : Entrée ouvre, Tab va au champ puis à « Fermer », Échap rend la main`, async ({
+      page,
+    }) => {
+      await refuseClipboard(page);
+      await openFixed(page, search);
+      await copyButton(page).focus();
+      await page.keyboard.press("Enter");
+      await expect(copyField(page)).toBeFocused();
+      // Chromium laisse Tab sortir vers l'interface du navigateur après le dernier élément : on
+      // vérifie l'ordre dans le dialogue, l'inertie du fond est garantie par :modal (test voisin).
+      await page.keyboard.press("Tab");
+      await expect(copyDialog(page).getByRole("button", { name: /^Fermer/u })).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(copyField(page)).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(copyButton(page)).toBeFocused();
+    });
+  }
+
+  test("CA-7 · repli : une fois fermé, la page répond de nouveau (« Terminer » affiche le Ticket)", async ({
+    page,
+  }) => {
+    await refuseClipboard(page);
+    await openFixed(page, query({ s: NOW - 600 }));
+    await copyMeterButton(page).click();
+    await copyDialog(page)
+      .getByRole("button", { name: /^Fermer/u })
+      .click();
+    await finishButton(page).click();
+    await expectTicket(page);
+  });
+
+  test("CA-7 · repli rouvert après une modification (CA-5) : le champ montre le nouveau lien, pas l'ancien", async ({
+    page,
+  }) => {
+    await refuseClipboard(page);
+    await openFixed(page, query({ t: "A", s: NOW - 600 }));
+    await copyMeterButton(page).click();
+    const first = await copyField(page).inputValue();
+    await page.keyboard.press("Escape");
+    await rateRadio(page, /mail/iu).check();
+    expect(urlParams(page).get("t")).toBe("C");
+    await copyMeterButton(page).click();
+    await expect(copyField(page)).toHaveValue(page.url());
+    expect(await copyField(page).inputValue()).not.toBe(first);
+    await expect(copyField(page)).toBeFocused();
+  });
+
+  test("CA-7 · repli avec un lien hostile : le champ montre le lien propre, rien ne s'exécute", async ({
+    page,
+  }) => {
+    const dialogs: string[] = [];
+    page.on("dialog", (dialog) => {
+      dialogs.push(dialog.message());
+      void dialog.dismiss();
+    });
+    await refuseClipboard(page);
+    await openFixed(
+      page,
+      query({
+        team: [{ label: '"><img src=x onerror=alert(1)>', rate: 10 }],
+        raw: [`p=1|${encodeURIComponent(SCRIPT_SCHEME)}alert(1)`],
+        s: NOW - 600,
+        n: "<svg/onload=alert(1)>",
+      }),
+    );
+    await copyMeterButton(page).click();
+    await expect(copyField(page)).toHaveValue(page.url());
+    expect(await copyDialog(page).locator("img, svg, a[href]").count()).toBe(0);
+    expect(dialogs).toEqual([]);
+  });
+
+  test("CA-7 · repli à 360 px : dialogue entier dans l'écran, pas de défilement horizontal, « Fermer » ≥ 44 px", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 360, height: 640 });
+    await refuseClipboard(page);
+    await openFixed(
+      page,
+      query({ team: crew(8, () => 50, true), s: NOW - 600, n: "😀".repeat(60) }),
+    );
+    await copyMeterButton(page).click();
+    await expect(copyDialog(page)).toBeInViewport({ ratio: 1 });
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    const close = await copyDialog(page)
+      .getByRole("button", { name: /^Fermer/u })
+      .boundingBox();
+    expect(close?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(close?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(await axeViolations(page)).toEqual([]);
+  });
+
+  test("CA-7 · presse-papiers accepté : pas de dialogue, « Lien copié » annoncé poliment", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await openFixed(page, query({ s: NOW - 600 }));
+    await copyMeterButton(page).click();
+    await expect(copiedStatus(page)).toBeVisible();
+    await expect(copyDialog(page)).toHaveCount(0);
+    expect(
+      await copiedStatus(page).evaluate(
+        (element) => element.closest('[aria-live="polite"], [role="status"]') !== null,
+      ),
+    ).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Statut « Lien copié » : à côté du bouton, jamais par-dessus le ticket
+  // -------------------------------------------------------------------------------------------
+
+  for (const [width, height] of [
+    [1280, 720],
+    [1093, 614],
+    [960, 600],
+    [360, 780],
+  ] as const) {
+    for (const [screen, search, copyButton] of [
+      [
+        "Compteur",
+        query({ team: crew(8, () => 50), s: NOW - 600, n: "Point hebdo" }),
+        copyMeterButton,
+      ],
+      ["Ticket", query({ team: crew(8, () => 50), s: NOW - 600, e: NOW - 60 }), copyTicketButton],
+    ] as const) {
+      test(`Copie ${screen} ${width}×${height} · « Lien copié » ne recouvre ni le ticket ni le bouton`, async ({
+        page,
+        context,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+        await page.setViewportSize({ width, height });
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await openFixed(page, search);
+        await copyButton(page).click();
+        const status = copiedStatus(page).filter({ visible: true }).first();
+        await expect(status).toBeVisible();
+        // CA-7 : « confirmation visible », donc dans la fenêtre et pas sous la ligne de flottaison.
+        await expect(status).toBeInViewport({ ratio: 1 });
+        const statusBox = await status.boundingBox();
+        const ticketBox = await ticket(page).boundingBox();
+        expect(statusBox).not.toBeNull();
+        expect(ticketBox).not.toBeNull();
+        if (statusBox !== null && ticketBox !== null) {
+          expect(intersects(statusBox, ticketBox), "statut posé sur le ticket").toBe(false);
+        }
+        expect(await coveredBy(copyButton(page))).toBeNull();
+        for (const line of await ticket(page).getByRole("term").all()) {
+          if (!(await line.isVisible())) continue;
+          await line.evaluate((element) => element.scrollIntoView({ block: "nearest" }));
+          expect(await coveredBy(line), normalizeSpaces(await line.innerText())).toBeNull();
+        }
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Lien de version inconnue : pas de réécriture
+  // -------------------------------------------------------------------------------------------
+
+  for (const version of ["2", "99"]) {
+    test(`URL propre · v=${version} : Configuration + « Lien d'une version inconnue », et l'adresse n'est pas réécrite (hash, inconnus et doublons gardés)`, async ({
+      page,
+      baseURL,
+    }) => {
+      const search = `${query({ v: version, t: "C", s: NOW - 600, n: "Futur" })}&t=A&w=1&p=x`;
+      await page.clock.setFixedTime(NOW_MS);
+      const opened = new URL(`reunion-metre/?${search}#ancre`, baseURL).href;
+      await page.goto(opened);
+      await expectConfiguration(page);
+      await expect(page.getByText(specText("Lien d'une version inconnue"))).toBeVisible();
+      expect(page.url()).toBe(opened);
+      // Recharger ne le perd pas non plus : le message revient, le lien reste intact.
+      await page.reload();
+      await expect(page.getByText(specText("Lien d'une version inconnue"))).toBeVisible();
+      expect(page.url()).toBe(opened);
+    });
+  }
+
+  test("URL propre · v=2&v=1 (CL-7, le premier gagne) : version inconnue, l'adresse n'est pas réécrite", async ({
+    page,
+    baseURL,
+  }) => {
+    await page.clock.setFixedTime(NOW_MS);
+    const opened = new URL(`reunion-metre/?v=2&${query({ s: NOW - 600 })}`, baseURL).href;
+    await page.goto(opened);
+    await expectConfiguration(page);
+    await expect(page.getByText(specText("Lien d'une version inconnue"))).toBeVisible();
+    expect(page.url()).toBe(opened);
+  });
+
+  test("Contrôle · v=1 avec les mêmes inconnus et le même hash : l'adresse est bien réécrite", async ({
+    page,
+  }) => {
+    await openFixed(page, `${query({ t: "C", s: NOW - 600 })}&t=A&w=1#ancre`);
+    await expectCounter(page);
+    expect(new URL(page.url()).hash).toBe("");
+    expect(urlParams(page).has("w")).toBe(false);
+    expect(urlParams(page).getAll("t")).toEqual(["C"]);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Forme propre de plus de 4 Ko : refusée comme un lien trop long
+  // -------------------------------------------------------------------------------------------
+
+  test("CL-8 · lien brut sous 4 Ko dont la forme propre (NFC) dépasse 4 Ko : « Lien trop long », et l'adresse ne dépasse jamais 4 Ko", async ({
+    page,
+  }) => {
+    // U+0958 (DEVANAGARI QA) est une exclusion de composition : NFC le décompose en
+    // U+0915 U+093C, soit 9 octets encodés qui deviennent 18 dans la forme propre.
+    const label = String.fromCodePoint(0x0958).repeat(14);
+    const team = Array.from({ length: 30 }, () => ({ label, rate: 1 }));
+    const search = query({ team, s: NOW - 600 });
+    expect(search.length).toBeLessThanOrEqual(4096);
+    const clean = query({
+      team: team.map((m) => ({ ...m, label: m.label.normalize("NFC") })),
+      s: NOW - 600,
+    });
+    expect(clean.length).toBeGreaterThan(4096);
+
+    await openFixed(page, search);
+    await expectConfiguration(page);
+    await expect(page.getByText(specText("Lien trop long"))).toBeVisible();
+    expect(new URL(page.url()).search.length).toBeLessThanOrEqual(4097);
+  });
+
+  test("Règle 2 · lien brut sous 4 Ko de libellés « %FF » (U+FFFD au décodage) : l'adresse finale tient en 4 Ko et se rouvre à l'identique", async ({
+    page,
+    context,
+  }) => {
+    const raw = Array.from({ length: 30 }, (_, index) => `p=${index}|${"%FF".repeat(40)}`);
+    const search = query({ team: [], raw, s: NOW - 600 });
+    expect(search.length).toBeLessThanOrEqual(4096);
+    await openFixed(page, search);
+    const settled = page.url();
+    expect(new URL(settled).search.length).toBeLessThanOrEqual(4097);
+
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS);
+    await other.goto(settled);
+    await other.evaluate(() => document.fonts.ready);
+    expect(other.url()).toBe(settled);
+    expect(await other.getByRole("timer").count()).toBe(await page.getByRole("timer").count());
+    if ((await page.getByRole("timer").count()) > 0) {
+      expect(await shownAmount(other)).toBe(await shownAmount(page));
+    }
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // CL-3 · e sans s valide
+  // -------------------------------------------------------------------------------------------
+
+  for (const [label, link] of [
+    ["e sans s", { e: NOW - 60 }],
+    ["e avec s illisible", { s: "demain", e: NOW - 60 }],
+    ["e avec s avant 2020", { s: 1_500_000_000, e: 1_500_000_600 }],
+  ] as const) {
+    test(`CL-3 · ${label} → Configuration, e ignoré avec un message, e retiré du lien`, async ({
+      page,
+    }) => {
+      await openFixed(page, query(link));
+      await expectConfiguration(page);
+      await expect(notices(page).first()).toBeVisible();
+      expect(urlParams(page).has("e")).toBe(false);
+      const texts = await notices(page).allInnerTexts();
+      expect(texts.flatMap((text) => typographyIssues(text))).toEqual([]);
+    });
+  }
+
+  test("CL-3 · contrôle : la même équipe sans e ni s n'affiche aucun message", async ({ page }) => {
+    await openFixed(page, query({}));
+    await expectConfiguration(page);
+    await expect(notices(page)).toHaveCount(0);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Notices : jusqu'à « Fermer » ou au changement d'écran, pas au rechargement
+  // -------------------------------------------------------------------------------------------
+
+  const NOTICE_LINK = query({ t: "Z", raw: ["p=12.5|x", "p=-1|y"], s: NOW - 600 });
+
+  test("Notices · restent affichées au fil du temps (10 min plus tard), jusqu'à « Fermer »", async ({
+    page,
+  }) => {
+    await openTicking(page, NOTICE_LINK);
+    await expectCounter(page);
+    const count = await notices(page).count();
+    expect(count).toBeGreaterThan(0);
+    await page.clock.runFor(10 * 60_000);
+    await expect(notices(page)).toHaveCount(count);
+    await closeNoticesButton(page).first().click();
+    await expect(notices(page).filter({ visible: true })).toHaveCount(0);
+  });
+
+  test("Notices · disparaissent au changement d'écran (« Terminer »)", async ({ page }) => {
+    await openFixed(page, NOTICE_LINK);
+    await expect(notices(page).first()).toBeVisible();
+    await finishButton(page).click();
+    await expectTicket(page);
+    await expect(notices(page).filter({ visible: true })).toHaveCount(0);
+  });
+
+  test("Notices · recharger la forme propre ne les réaffiche pas", async ({ page }) => {
+    await openFixed(page, NOTICE_LINK);
+    await expect(notices(page).first()).toBeVisible();
+    const clean = page.url();
+    await page.reload();
+    await expectCounter(page);
+    expect(page.url()).toBe(clean);
+    await expect(notices(page)).toHaveCount(0);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Textes libres : zalgo réduit à 4 marques, coupé dans sa ligne, ordre retrait → NFC → trim
+  // -------------------------------------------------------------------------------------------
+
+  test("Menace · libellé et titre zalgo (30 marques par lettre) : 4 marques au plus, partout (champ, ticket, lien)", async ({
+    page,
+  }) => {
+    const label = zalgo("Kevin", 30);
+    const title = zalgo("Point", 30);
+    await openFixed(
+      page,
+      query({
+        team: [
+          { label: "Cheffe de projet", rate: 68 },
+          { label, rate: 48 },
+        ],
+        s: NOW - 600,
+        e: NOW - 60,
+        n: title,
+      }),
+    );
+    await expectTicket(page);
+    const expectedLabel = zalgo("Kevin", 4).normalize("NFC");
+    const expectedTitle = zalgo("Point", 4).normalize("NFC");
+    expect(urlParams(page).getAll("p")[1]).toBe(`48|${expectedLabel}`);
+    expect(urlParams(page).get("n")).toBe(expectedTitle);
+    const body = await page.locator("body").innerText();
+    expect(longestMarkRun(body)).toBeLessThanOrEqual(4);
+    expect(body).toContain(expectedLabel);
+    expect(body).toContain(expectedTitle);
+  });
+
+  test("Menace · zalgo de 30 marques par lettre : la forme propre est stable au rechargement, sans notice", async ({
+    page,
+    context,
+  }) => {
+    await openFixed(
+      page,
+      query({
+        team: [{ label: zalgo("Kevin", 30), rate: 48 }],
+        s: NOW - 600,
+        n: zalgo("Point", 30),
+      }),
+    );
+    await expectCounter(page);
+    const clean = page.url();
+    const other = await context.newPage();
+    await other.clock.setFixedTime(NOW_MS);
+    await other.goto(clean);
+    await expectCounter(other);
+    expect(other.url()).toBe(clean);
+    await expect(notices(other)).toHaveCount(0);
+  });
+
+  test("Menace · vietnamien, thaï, devanagari et emoji keycap : intacts (à la NFC près) dans le champ et dans le lien", async ({
+    page,
+  }) => {
+    const team: Member[] = [
+      { label: "Nguyễn Thị Ánh", rate: 10 },
+      { label: "ผู้จัดการฝ่ายบัญชี", rate: 20 },
+      { label: "क्षत्रिय प्रबंधक", rate: 30 },
+      { label: "Salle 1️⃣ #️⃣", rate: 40 },
+    ];
+    await openFixed(page, query({ team, s: NOW - 600 }));
+    await expectCounter(page);
+    for (const [index, member] of team.entries()) {
+      await expect(whoFields(page).nth(index)).toHaveValue(member.label.normalize("NFC"));
+    }
+    expect(urlParams(page).getAll("p")).toEqual(
+      team.map((member) => `${member.rate}|${member.label.normalize("NFC")}`),
+    );
+  });
+
+  test("Menace · ordre retrait → NFC → trim : « e » + RLO + accent aigu donne « é » composé, espaces bordés de bidi retirés", async ({
+    page,
+  }) => {
+    const rlo = String.fromCodePoint(0x202e);
+    const team: Member[] = [
+      { label: `Ren${"e"}${rlo}́`, rate: 10 },
+      { label: ` ${rlo} Kevin ${rlo} `, rate: 20 },
+    ];
+    await openFixed(page, query({ team, s: NOW - 600 }));
+    await expectCounter(page);
+    expect(urlParams(page).getAll("p")).toEqual(["10|René", "20|Kevin"]);
+    await expect(whoFields(page).nth(0)).toHaveValue("René");
+    await expect(whoFields(page).nth(1)).toHaveValue("Kevin");
+  });
+
+  test("Menace · libellé fait d'U+FFFC seulement : refusé comme invisible, avec message", async ({
+    page,
+  }) => {
+    const team: Member[] = [
+      ...SPEC_TEAM,
+      { label: String.fromCodePoint(0xfffc).repeat(3), rate: 99 },
+    ];
+    await openFixed(page, query({ team, s: NOW - 600 }));
+    await expectCounter(page);
+    await expect(whoFields(page)).toHaveCount(SPEC_TEAM.length);
+    await expect(notices(page).first()).toBeVisible();
+    expect(urlParams(page).getAll("p")).toHaveLength(SPEC_TEAM.length);
+  });
+
+  for (const screen of ["Compteur", "Ticket"] as const) {
+    test(`Menace · ${screen} : chaque conteneur visible de texte libre coupe ce qui déborde (overflow-wrap anywhere + overflow clip, CLAUDE.md)`, async ({
+      page,
+    }) => {
+      // Un test au pixel (lignes voisines intactes avec 4 marques par lettre) a été essayé puis
+      // retiré : dans ce Chromium, 4 marques ne débordent pas de leur ligne même sans clip, il ne
+      // pouvait donc pas échouer. On vérifie la règle de CLAUDE.md à la place.
+      const label = "Kevin-du-marketing";
+      const title = "Point-hebdo-produit";
+      const end = screen === "Ticket" ? { e: NOW - 60 } : {};
+      await openFixed(page, query({ team: [{ label, rate: 48 }], s: NOW - 600, ...end, n: title }));
+      if (screen === "Ticket") await expectTicket(page);
+      else await expectCounter(page);
+      const containers = await page.evaluate(
+        ([wanted]) => {
+          const found: { text: string; wrap: string; overflowX: string; overflowY: string }[] = [];
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+            const parent = node.parentElement;
+            if (parent === null || !parent.checkVisibility()) continue;
+            if (!wanted.some((text) => (node.textContent ?? "").includes(text))) continue;
+            const style = getComputedStyle(parent);
+            found.push({
+              text: (node.textContent ?? "").trim(),
+              wrap: style.overflowWrap,
+              overflowX: style.overflowX,
+              overflowY: style.overflowY,
+            });
+          }
+          return found;
+        },
+        [[label, title]] as const,
+      );
+      expect(containers.length).toBeGreaterThanOrEqual(1);
+      for (const container of containers) {
+        expect(container, container.text).toMatchObject({
+          wrap: "anywhere",
+          overflowX: expect.stringMatching(/clip|hidden/u),
+          overflowY: expect.stringMatching(/clip|hidden/u),
+        });
+      }
+    });
+  }
+
+  test("Menace · titre zalgo de 60 caractères à 360 px : pas de défilement horizontal (Compteur et Ticket)", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 360, height: 780 });
+    // 12 lettres × (1 + 4 marques) = 60 points de code, le maximum de n ; marques dessinées en
+    // largeur (U+20DD, cercle englobant) et en hauteur.
+    const title = [..."ABCDEFGHIJKL"]
+      .map((char) => char + String.fromCodePoint(0x20dd, 0x030d, 0x0316, 0x20dd))
+      .join("");
+    expect([...title]).toHaveLength(60);
+    const label = [..."ABCDEFGH"]
+      .map((char) => char + String.fromCodePoint(0x20dd, 0x030d, 0x0316, 0x20dd))
+      .join("");
+    for (const link of [
+      query({ team: [{ label, rate: 48 }], s: NOW - 600, n: title }),
+      query({ team: [{ label, rate: 48 }], s: NOW - 600, e: NOW - 60, n: title }),
+    ]) {
+      await openFixed(page, link);
+      expect(urlParams(page).get("n")).toBe(title.normalize("NFC"));
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+      expect(await page.evaluate(() => window.scrollX)).toBe(0);
+    }
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Règle 5 (CLAUDE.md) · lisibilité des participants sur le Compteur, fenêtre en demi-écran
+  // -------------------------------------------------------------------------------------------
+
+  // 960×1000 : fenêtre calée sur la moitié d'un écran 1920×1080, le Compteur à côté du chat de la
+  // réunion (l'usage décrit en tête de spec). 1024×768 : petit portable, tablette en paysage.
+  // À 360 px, les mêmes libellés se lisent en entier : le défaut tient à la mise en page.
+  for (const [width, height] of [
+    [960, 1000],
+    [1024, 768],
+  ] as const) {
+    test(`Règle 5 · Compteur ${width}×${height} : les libellés de l'exemple de la spec (16 à 18 caractères) se lisent en entier dans leur champ « Qui »`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height });
+      await openFixed(page, query({ s: NOW - 600 }));
+      await expectCounter(page);
+      const cut = await whoFields(page).evaluateAll((fields) =>
+        fields.flatMap((field) =>
+          field instanceof HTMLInputElement && field.scrollWidth > field.clientWidth + 1
+            ? [
+                `« ${field.value} » : ${field.clientWidth} px affichés pour ${field.scrollWidth} px de texte`,
+              ]
+            : [],
+        ),
+      );
+      expect(cut).toEqual([]);
+    });
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Ticket du Compteur aux petits écrans de portable (Design : aucune ligne masquée sans recours)
+  // -------------------------------------------------------------------------------------------
+
+  for (const [width, height] of [
+    [1280, 720],
+    [1093, 614],
+    [960, 600],
+  ] as const) {
+    for (const [label, link] of [
+      [
+        "3 participants",
+        query({ s: NOW - 600, n: "Point hebdo de l'équipe produit et marketing" }),
+      ],
+      [
+        "8 participants, titre de 60 caractères",
+        query({
+          team: crew(8, () => 50, true),
+          s: NOW - 600,
+          n: "Point hebdo de l'équipe produit, marketing et support client",
+        }),
+      ],
+      [
+        "8 participants + notices",
+        query({ t: "Z", team: crew(8, () => 50, true), raw: ["p=12.5|x"], s: NOW - 600, e: "fin" }),
+      ],
+    ] as const) {
+      test(`Compteur ${width}×${height} · ${label} : aucune ligne du ticket en cours coupée sans moyen de la lire`, async ({
+        page,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+        await page.setViewportSize({ width, height });
+        await openFixed(page, link);
+        await expectCounter(page);
+        expect(await unreadableTicketLines(page)).toEqual([]);
+        const overflow = await ticket(page).evaluate((element) => {
+          const style = getComputedStyle(element);
+          const scrolls = /(auto|scroll)/u.test(style.overflowY);
+          return {
+            hidden: element.scrollHeight - element.clientHeight,
+            reachable: scrolls && element instanceof HTMLElement && element.tabIndex >= 0,
+          };
+        });
+        if (!overflow.reachable)
+          expect(overflow.hidden, "ticket qui déborde de son cadre").toBeLessThanOrEqual(1);
+      });
+    }
+  }
+});

@@ -229,3 +229,104 @@ describe("Lien · tester", () => {
     expect(screenOf(parsed.meeting)).toBe("meter");
   });
 });
+
+// Tour 3 : décisions de l'orchestrateur après le tour 2 (spec, « Écrans », CL-3, Modèle de menace).
+describe("Lien · tester · tour 3", () => {
+  const TEAM = "p=68|Cheffe%20de%20projet&p=48|Kevin";
+  const codes = (search: string) => parseLink(search, NOW_MS).notices.map((notice) => notice.code);
+
+  it.each(["v=2", "v=99", "v=0", "v=abc", "v=", "v=2&v=1"])(
+    "version inconnue (%s) : Configuration, message, et pas de forme propre (l'adresse reste)",
+    (version) => {
+      const parsed = parseLink(`?${version}&t=C&${TEAM}&s=${NOW - 600}#x`, NOW_MS);
+      expect(screenOf(parsed.meeting)).toBe("setup");
+      expect(parsed.notices.map((notice) => notice.code)).toEqual(["unknown-version"]);
+      expect(parsed.query).toBeNull();
+    },
+  );
+
+  it("v=1 : la forme propre est bien produite (contrôle)", () => {
+    expect(parseLink(`?v=1&t=C&${TEAM}&s=${NOW - 600}&w=1`, NOW_MS).query).toBe(
+      `?v=1&t=C&${TEAM}&s=${NOW - 600}`,
+    );
+  });
+
+  it("forme propre de plus de 4 Ko (NFC qui décompose U+0958) : refusée comme trop long", () => {
+    const label = encodeURIComponent(String.fromCodePoint(0x0958).repeat(14));
+    const team = Array.from({ length: 30 }, () => `p=1|${label}`).join("&");
+    const search = `?v=1&t=B&${team}&s=${NOW - 600}`;
+    expect(search.length).toBeLessThanOrEqual(4097);
+    const parsed = parseLink(search, NOW_MS);
+    expect(parsed.notices.map((notice) => notice.code)).toEqual(["too-long"]);
+    expect(screenOf(parsed.meeting)).toBe("setup");
+    expect(parsed.query?.length ?? 0).toBeLessThanOrEqual(4096);
+  });
+
+  it("forme propre sous 4 Ko : jamais refusée, et toujours ≤ 4 Ko (balayage de 30 × n « %FF »)", () => {
+    for (let count = 1; count <= 40; count += 1) {
+      const team = Array.from({ length: 30 }, (_, index) => `p=${index}|${"%FF".repeat(count)}`);
+      const search = `?v=1&t=B&${team.join("&")}&s=${NOW - 600}`;
+      if (search.length > 4097) break;
+      const parsed = parseLink(search, NOW_MS);
+      expect(parsed.query?.length ?? 0, `${count} × %FF`).toBeLessThanOrEqual(4096);
+    }
+  });
+
+  it.each([
+    ["e sans s", `e=${NOW - 60}`],
+    ["e avec s illisible", `s=demain&e=${NOW - 60}`],
+    ["e avec s avant 2020", "s=1500000000&e=1500000600"],
+  ])("CL-3 · %s : e ignoré avec message, Configuration, e hors du lien", (_label, tail) => {
+    const parsed = parseLink(`?v=1&t=B&${TEAM}&${tail}`, NOW_MS);
+    expect(screenOf(parsed.meeting)).toBe("setup");
+    expect(parsed.notices.length).toBeGreaterThan(0);
+    expect(new URLSearchParams(parsed.query ?? "").has("e")).toBe(false);
+  });
+
+  it("CL-3 · contrôle : sans e ni s, aucun message", () => {
+    expect(codes(`?v=1&t=B&${TEAM}`)).toEqual([]);
+  });
+
+  it("zalgo : plus de 4 marques consécutives réduites à 4, forme propre stable", () => {
+    const marks = String.fromCodePoint(
+      ...Array.from({ length: 30 }, (_, k) => 0x0300 + (k % 0x30)),
+    );
+    const label = encodeURIComponent(`Kev${marks}in`);
+    const first = parseLink(`?v=1&t=B&p=10|${label}&s=${NOW - 600}`, NOW_MS);
+    const shown = first.meeting.participants[0]?.label ?? "";
+    expect(shown.startsWith("Kev")).toBe(true);
+    expect(shown.endsWith("in")).toBe(true);
+    expect([...shown].filter((char) => /\p{M}/u.test(char)).length).toBeLessThanOrEqual(4);
+    const second = parseLink(first.query ?? "", NOW_MS);
+    expect(second.query).toBe(first.query);
+    expect(second.notices).toEqual([]);
+  });
+
+  it.each([
+    ["vietnamien décomposé", "Nguyễn Thị Ánh"],
+    ["thaï", "ผู้จัดการฝ่ายบัญชี"],
+    ["devanagari", "क्षत्रिय प्रबंधक"],
+    ["emoji keycap", "Salle 1️⃣ #️⃣"],
+  ])("%s : intact à la NFC près", (_label, text) => {
+    const parsed = parseLink(`?v=1&t=B&p=10|${encodeURIComponent(text)}&s=${NOW - 600}`, NOW_MS);
+    expect(parsed.meeting.participants[0]?.label).toBe(text.normalize("NFC"));
+  });
+
+  it("ordre retrait → NFC → trim : « e » + RLO + U+0301 donne « é » composé ; bidi en bord retiré puis trim", () => {
+    const rlo = encodeURIComponent(String.fromCodePoint(0x202e));
+    const parsed = parseLink(
+      `?v=1&t=B&p=10|Rene${rlo}%CC%81&p=20|%20${rlo}%20Kevin%20${rlo}%20&s=${NOW - 600}`,
+      NOW_MS,
+    );
+    expect(parsed.meeting.participants.map((participant) => participant.label)).toEqual([
+      "René",
+      "Kevin",
+    ]);
+  });
+
+  it("U+FFFC seul : libellé refusé comme invisible", () => {
+    const parsed = parseLink(`?v=1&t=B&${TEAM}&p=9|%EF%BF%BC%EF%BF%BC&s=${NOW - 600}`, NOW_MS);
+    expect(parsed.meeting.participants).toHaveLength(2);
+    expect(parsed.notices.length).toBeGreaterThan(0);
+  });
+});

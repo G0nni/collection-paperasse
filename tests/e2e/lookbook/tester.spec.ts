@@ -918,3 +918,143 @@ test.describe("lookbook · tester tour 2", () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// Tour 3 : précisions de la spec après le tour 2 (commit dbbb141).
+// ---------------------------------------------------------------------------------------------
+
+const NARROW_NBSP = String.fromCodePoint(0x202f);
+
+test.describe("lookbook · tester tour 3", () => {
+  // Design : « Insécable : U+00A0 partout (pas d'espace fine U+202F), pour un seul cas à
+  // tester. » support/text.ts › normalizeSpaces confond les deux : on cherche U+202F à la source.
+  test("Typo · aucune espace fine insécable U+202F dans le HTML, le CSS ni le rendu", async ({
+    page,
+    request,
+  }) => {
+    const html = await (await request.get("")).text();
+    expect(html.includes(NARROW_NBSP), "caractère U+202F dans le HTML").toBe(false);
+    expect(html, "entité U+202F dans le HTML").not.toMatch(
+      /&#x0*202f;|&#8239;|&NarrowNoBreakSpace;/iu,
+    );
+    await page.goto("");
+    const texts = await perceivedTexts(page, page.locator("body"));
+    for (const { where, text } of texts) {
+      expect(text.includes(NARROW_NBSP), where).toBe(false);
+    }
+    const stylesheets = await page
+      .locator('link[rel="stylesheet"]')
+      .evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
+    expect(stylesheets.length).toBeGreaterThan(0);
+    for (const href of stylesheets) {
+      const css = await (await request.get(new URL(href, page.url()).href)).text();
+      expect(css.includes(NARROW_NBSP), href).toBe(false);
+      // content: "\202F" dans une pseudo-classe.
+      expect(css, href).not.toMatch(/\\0*202f/iu);
+    }
+  });
+
+  // L'étiquette fait partie de la spec du lookbook (« Le CollectionTag ») : même règle.
+  for (const look of LOOKS) {
+    test(`Typo · CA-5 · aucune U+202F dans l'étiquette du Look ${look.number}`, async ({
+      page,
+    }) => {
+      await page.goto(`${look.slug}/`);
+      const tag = page.getByRole("navigation", { name: "Collection", exact: true });
+      const text = await tag.evaluate((element) =>
+        [
+          element instanceof HTMLElement ? element.innerText : "",
+          element.textContent ?? "",
+          ...[...element.querySelectorAll("[aria-label]")].map(
+            (node) => node.getAttribute("aria-label") ?? "",
+          ),
+        ].join("|"),
+      );
+      expect(text.includes(NARROW_NBSP)).toBe(false);
+      expect(text).toContain(NBSP);
+    });
+  }
+
+  // Design : « Un aperçu peut contenir un SVG inline décoratif (le sceau de l'acte), en
+  // aria-hidden. » Décoratif : invisible pour les lecteurs d'écran, inerte, et inline (rien de
+  // chargé, CA-3). L'aperçu reste une image nommée (testé au tour 2).
+  for (const look of LOOKS) {
+    test(`Contenu · tout SVG de l'aperçu du Look ${look.number} est inline, décoratif et inerte`, async ({
+      page,
+    }) => {
+      await page.goto("");
+      const preview = page.getByRole("article", { name: look.name, exact: true }).getByRole("img");
+      await expect(preview).toHaveCount(1);
+      const svgs = await preview.evaluate((element) =>
+        [...element.querySelectorAll("svg")].map((svg) => ({
+          ariaHidden: svg.getAttribute("aria-hidden"),
+          role: svg.getAttribute("role"),
+          focusable: svg.querySelectorAll("a, [tabindex], foreignObject").length,
+          tabindex: svg.getAttribute("tabindex"),
+          external: [...svg.querySelectorAll("image, use, script, feImage")].length,
+          hrefs: [svg, ...svg.querySelectorAll("*")].filter(
+            (node) => node.hasAttribute("href") || node.hasAttribute("xlink:href"),
+          ).length,
+          urlRefs: [svg, ...svg.querySelectorAll("*")].filter((node) =>
+            [...node.attributes].some((attribute) =>
+              /url\(\s*['"]?[^#'"\s)]/iu.test(attribute.value),
+            ),
+          ).length,
+          handlers: [svg, ...svg.querySelectorAll("*")].filter((node) =>
+            [...node.attributes].some((attribute) => /^on/iu.test(attribute.name)),
+          ).length,
+        })),
+      );
+      if (look.slug === "jure-crache") {
+        // Le sceau de l'acte est cité par la spec : s'il est en SVG, il doit être là une fois.
+        expect(svgs.length).toBeLessThanOrEqual(1);
+      }
+      for (const svg of svgs) {
+        expect(svg.ariaHidden, "aria-hidden").toBe("true");
+        expect(svg.role, "pas de rôle qui l'exposerait").toBeNull();
+        expect(svg.tabindex, "pas focusable").toBeNull();
+        expect(svg.focusable, "aucun lien ni élément focusable dedans").toBe(0);
+        expect(svg.external, "aucun image/use/script/feImage").toBe(0);
+        expect(svg.hrefs, "aucun href").toBe(0);
+        expect(svg.urlRefs, "aucune url() externe").toBe(0);
+        expect(svg.handlers, "aucun gestionnaire d'événement").toBe(0);
+      }
+      // Le texte du SVG (le « § » du sceau) ne fuit pas dans le nom de l'image. (Pas
+      // d'ariaSnapshot ici : Playwright y liste les enfants d'un role="img", que Chrome traite
+      // comme présentationnels, ARIA 1.2.)
+      const svgText = await preview.evaluate((element) =>
+        [...element.querySelectorAll("svg")].map((svg) => (svg.textContent ?? "").trim()).join(""),
+      );
+      const name = (await preview.getAttribute("aria-label")) ?? "";
+      if (svgText !== "") expect(name.includes(svgText), svgText).toBe(false);
+    });
+  }
+
+  // Design : « Le lien GitHub posé sur un post-it penche avec lui. » Et les boutons, eux,
+  // restent droits (tour 2) : ce lien est l'exception, pas la règle.
+  test("Design · le lien GitHub penche avec son post-it", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("");
+    await page.mouse.move(0, 0);
+    const repo = page.getByRole("contentinfo").getByRole("link", { name: /GitHub/u });
+    await expect(repo).toHaveCount(1);
+    // Le post-it : l'ancêtre le plus proche qui a un fond.
+    const host = await repo.evaluateHandle((element) => {
+      let node: Element | null = element.parentElement;
+      while (node !== null && getComputedStyle(node).backgroundColor === "rgba(0, 0, 0, 0)") {
+        node = node.parentElement;
+      }
+      return node ?? document.body;
+    });
+    const noteBackground = await host.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    );
+    const note = await host.evaluate(effectiveRotation);
+    const link = await repo.evaluate(effectiveRotation);
+    // Post-it : un des fonds de post-it de la maquette (bleu de la spec, ou jaune d'affiche).
+    expect(["rgb(167, 224, 242)", "rgb(255, 228, 92)"]).toContain(noteBackground);
+    expect(Math.abs(note)).toBeGreaterThan(0.2);
+    expect(Math.abs(link)).toBeGreaterThan(0.2);
+    expect(link).toBeCloseTo(note, 1);
+  });
+});

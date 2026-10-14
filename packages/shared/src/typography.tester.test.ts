@@ -160,3 +160,57 @@ describe("oracle strict · pas de faux positif sur les URL", () => {
     expect(findTypographyIssues("HTTPS://GITHUB.COM/G0NNI/COLLECTION-PAPERASSE")).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Tour 3 : specs/lookbook.md précise « Insécable : U+00A0 partout (pas d'espace fine U+202F) ».
+// ---------------------------------------------------------------------------------------------
+
+describe("oracle strict tour 3 · U+202F refusée partout où une insécable est due", () => {
+  for (const mark of [":", ";", "!", "?"]) {
+    it(`refuse U+202F avant « ${mark} »`, () => {
+      expect(kinds(`Prix${NARROW_NBSP}${mark} rien`)).toEqual(["narrow-nbsp"]);
+    });
+  }
+
+  it("refuse U+202F après « et avant », une faute par guillemet", () => {
+    expect(kinds(`${OPEN}${NARROW_NBSP}Oui${NBSP}${CLOSE}`)).toEqual(["narrow-nbsp"]);
+    expect(kinds(`${OPEN}${NARROW_NBSP}Oui${NARROW_NBSP}${CLOSE}`)).toEqual([
+      "narrow-nbsp",
+      "narrow-nbsp",
+    ]);
+  });
+
+  it("refuse U+202F collée à la bonne insécable, d'un côté comme de l'autre", () => {
+    expect(kinds(`Prix${NBSP}${NARROW_NBSP}: rien`)).toEqual(["narrow-nbsp"]);
+    expect(kinds(`Prix${NARROW_NBSP}${NBSP}: rien`)).toEqual(["narrow-nbsp"]);
+    expect(kinds(`${OPEN}${NBSP}${NARROW_NBSP}Oui${NBSP}${CLOSE}`)).toEqual(["narrow-nbsp"]);
+  });
+});
+
+// Le contrat de l'oracle (typography.ts) : « Une espace sécable collée à l'insécable aussi : la
+// ligne se coupe sur elle et emporte « ⍽: » à la ligne. » Une suite d'insécables précédée d'une
+// espace sécable a le même défaut : la coupure emporte « ⍽⍽: » à la ligne.
+describe("oracle strict tour 3 · espace sécable au bout d'une suite d'insécables", () => {
+  it("refuse une espace sécable avant deux insécables, devant « : »", () => {
+    expect(kinds(`Prix ${NBSP}${NBSP}: rien`)).toEqual(["breaking-space"]);
+  });
+
+  it("refuse une espace sécable entre deux insécables, devant « : »", () => {
+    expect(kinds(`Prix${NBSP} ${NBSP}: rien`)).toEqual(["breaking-space"]);
+  });
+
+  it("refuse une espace sécable au bout de deux insécables, après « et avant »", () => {
+    expect(kinds(`${OPEN}${NBSP}${NBSP} Oui${NBSP}${CLOSE}`)).toEqual(["breaking-space"]);
+    expect(kinds(`${OPEN}${NBSP}Oui ${NBSP}${NBSP}${CLOSE}`)).toEqual(["breaking-space"]);
+  });
+});
+
+describe("oracle strict tour 3 · fin d'URL", () => {
+  // Une parenthèse fermante sans ouvrante dans l'URL appartient à la phrase, et « : » derrière
+  // elle est une ponctuation française : l'URL ne doit pas l'avaler.
+  it("refuse « : » collé à la parenthèse qui ferme une URL", () => {
+    expect(kinds("Le code (https://github.com/G0nni/collection-paperasse): ici")).toEqual([
+      "missing-nbsp",
+    ]);
+  });
+});

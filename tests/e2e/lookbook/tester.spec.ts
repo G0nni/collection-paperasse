@@ -789,3 +789,132 @@ test.describe("lookbook · tester", () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// Tour 2 : points précisés dans la spec depuis le tour 1.
+// ---------------------------------------------------------------------------------------------
+
+/** specs/lookbook.md (Design) : document et police de chaque aperçu, dans l'ordre des looks. */
+const PREVIEW_OF: Record<(typeof LOOKS)[number]["slug"], { document: RegExp; font: string }> = {
+  "reunion-metre": { document: /ticket/iu, font: "Doto" },
+  "jure-crache": { document: /acte/iu, font: "Young Serif" },
+  "sav-de-ta-vie": { document: /listing/iu, font: "Courier Prime" },
+};
+
+test.describe("lookbook · tester tour 2", () => {
+  // CA-2 : « En dessous de 960 px, les cartes s'empilent sur une colonne ». Le tour 1 ne testait
+  // que 360 px, où deux colonnes ne tiennent de toute façon pas.
+  for (const width of [600, 768, 959]) {
+    test(`CA-2 · à ${width} px (sous 960), une seule colonne`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("");
+      const [first, second, third] = await cardsOf(page);
+      if (first === undefined || second === undefined || third === undefined) throw new Error();
+      expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
+      expect(third.y).toBeGreaterThanOrEqual(second.y + second.height);
+      // Une colonne : mêmes bords gauche et droit pour les trois cartes.
+      for (const box of [second, third]) {
+        expect(Math.abs(box.x - first.x)).toBeLessThan(1);
+        expect(Math.abs(box.width - first.width)).toBeLessThan(1);
+      }
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  }
+
+  // Contenu : « un aperçu statique en HTML/CSS (une miniature du document du look, role="img"
+  // avec un nom accessible) » ; Design : « chaque look = un aperçu de son document (ticket, acte,
+  // listing) » et « Les aperçus de chaque look reprennent les polices de ce look ».
+  for (const look of LOOKS) {
+    test(`Contenu · l'aperçu du Look ${look.number} est une miniature HTML/CSS nommée`, async ({
+      page,
+    }) => {
+      const expected = PREVIEW_OF[look.slug];
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      const card = page.getByRole("article", { name: look.name, exact: true });
+      const previews = card.getByRole("img");
+      await expect(previews).toHaveCount(1);
+      const preview = previews.first();
+      await expect(preview).toBeVisible();
+      await expect(preview).toHaveAttribute("role", "img");
+      await expect(preview).toHaveAccessibleName(expected.document);
+
+      const markup = await preview.evaluate((element) => {
+        const nodes = [element, ...element.querySelectorAll("*")];
+        return {
+          media: element.querySelectorAll("img, picture, canvas, object, embed, iframe, video")
+            .length,
+          urlBackgrounds: nodes
+            .map((node) => getComputedStyle(node).backgroundImage)
+            .filter((image) => image.includes("url(")),
+          htmlText: [...element.querySelectorAll("*")]
+            .filter((node) => node.closest("svg") === null)
+            .map((node) =>
+              [...node.childNodes]
+                .filter((child) => child.nodeType === Node.TEXT_NODE)
+                .map((child) => child.textContent ?? "")
+                .join("")
+                .trim(),
+            )
+            .filter(Boolean).length,
+        };
+      });
+      expect(markup.media, "aucune image matricielle ni média").toBe(0);
+      expect(markup.urlBackgrounds, "aucun fond en url()").toEqual([]);
+      expect(markup.htmlText, "du texte HTML, pas une image").toBeGreaterThan(0);
+
+      const fonts = await preview.evaluate((element) =>
+        [...element.querySelectorAll("*")]
+          .filter((node) =>
+            [...node.childNodes].some(
+              (child) => child.nodeType === Node.TEXT_NODE && (child.textContent ?? "").trim(),
+            ),
+          )
+          .map((node) => getComputedStyle(node).fontFamily.split(",")[0]?.replaceAll('"', "")),
+      );
+      expect(fonts, `police ${expected.font} dans l'aperçu`).toContain(expected.font);
+      expect(
+        await page.evaluate((family) => document.fonts.check(`16px "${family}"`), expected.font),
+      ).toBe(true);
+    });
+  }
+
+  // CLAUDE.md (« Vrais éléments ») et WCAG 2.5.3 : le nom accessible d'un lien contient son texte
+  // visible, sinon la commande vocale « clique sur Essayer le Look 01 » échoue. Axe ne l'active
+  // pas par défaut (règle expérimentale label-content-name-mismatch).
+  test("CA-4 · le nom accessible de chaque lien contient son texte visible", async ({ page }) => {
+    await page.goto("");
+    const problems: string[] = [];
+    for (const link of await page.getByRole("link").all()) {
+      const visible = normalizeSpaces((await link.innerText()).replaceAll("→", "")).toLowerCase();
+      const name = normalizeSpaces(
+        await link.evaluate(
+          (element) => element.getAttribute("aria-label") ?? element.textContent ?? "",
+        ),
+      ).toLowerCase();
+      if (!name.includes(visible)) problems.push(`« ${visible} » absent de « ${name} »`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  // Le CollectionTag vu par un lecteur d'écran : « · » et « → » sont décoratifs, les deux liens
+  // ont un nom qui se suffit (specs/lookbook.md, « Le CollectionTag »).
+  for (const [index, look] of LOOKS.entries()) {
+    test(`CA-5 · noms accessibles de l'étiquette du Look ${look.number}`, async ({ page }) => {
+      await page.goto(`${look.slug}/`);
+      const tag = page.getByRole("navigation", { name: "Collection", exact: true });
+      const links = tag.getByRole("link");
+      await expect(links).toHaveCount(2);
+      await expect(links.first()).toHaveAccessibleName("Collection Paperasse · AH26");
+      const nextLook = LOOKS[index + 1];
+      const nextName =
+        nextLook === undefined ? "Retour au lookbook" : `Suivant${NBSP}: ${nextLook.name}`;
+      // Flèche hors du nom ; l'insécable est vérifiée telle quelle dans collection.spec.ts.
+      await expect(links.last()).toHaveAccessibleName(normalizeSpaces(nextName));
+    });
+  }
+});

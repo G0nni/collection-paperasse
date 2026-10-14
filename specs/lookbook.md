@@ -37,12 +37,26 @@ avec des liens. Le dernier look renvoie au lookbook.
 
 ## Design (tokens)
 
-- Blanc `#FFFFFF`, noir `#0E0E0E`, un seul accent : orange signalétique `#E8590C` (utilisé
-  uniquement pour les numéros de look, jamais en texte courant sur fond blanc).
-- Polices (fontsource) : Bodoni Moda (titres éditoriaux, très grands) ; JetBrains Mono (fiches).
-- Modules signature : numéros de look géants qui débordent de la carte ; fiches techniques en
-  tableau à filets fins ; étiquette de collection cousue (points de couture en pointillés).
+Concept : **le tableau d'affichage de la mairie**. Un panneau en liège sur lequel sont punaisés
+l'affiche « Avis à la population » et les trois documents de la collection.
+
+- Liège `#C38F55` avec texture en points (deux `radial-gradient` superposés), affiche jaune
+  `#FFE45C`, encre `#1B1B1B`, rouge tampon `#B3261E`, étiquettes kraft `#EAD3A2`, numéros de look
+  `#C2410C` (uniquement en très grand, ≥ 34 px), post-it bleu `#A7E0F2`.
+- Polices (fontsource) : Alfa Slab One (titres façon affiche en caractères bois, numéros de
+  look) ; JetBrains Mono (texte, fiches). Les aperçus de chaque look reprennent les polices de
+  ce look (Doto, Young Serif, Courier Prime), chargées uniquement sur cette page.
+- Modules signature : affiche « Avis à la population » légèrement inclinée avec deux punaises et
+  un tampon ENTRÉE LIBRE ; chaque look = un aperçu de son document (ticket, acte, listing)
+  punaisé ou scotché de travers, et en dessous une étiquette kraft trouée avec la fiche défilé ;
+  post-its en pied de page.
+- Les inclinaisons ne s'appliquent qu'aux aperçus et à l'affiche. Les fiches et les liens
+  restent droits, pour la lisibilité.
+- Maquette de référence : canvas Design « Projets débiles », artboard « Lookbook · Collection
+  Paperasse (avis à la population) ».
 
 ## Décisions prises (à valider par Gonni)
 
 - Pas de nom de domaine perso pour la v1 : `g0nni.github.io/collection-paperasse/`.
+- Direction « tableau d'affichage de mairie » plutôt que lookbook blanc, demandée par Gonni le
+  14/10/2026 (maquette à valider).

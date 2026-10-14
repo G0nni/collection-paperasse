@@ -15,28 +15,31 @@
 ## Format d'URL (fait foi)
 
 ```
-/reunion-metre/?v=1&t=B&p=68.0,48.1,72.2,51.3,6.4&s=1760425200&e=1760428800&n=Point%20rapide
+/reunion-metre/?v=1&t=B&p=68|Cheffe%20de%20projet&p=48|Kevin%20du%20marketing&p=6|Stagiaire&s=1760425200&n=Point%20rapide
 ```
 
 | Param | Obligatoire | Format | Bornes | Défaut si invalide |
 | ----- | ----------- | ------ | ------ | ------------------ |
 | `v` | oui | entier | `1` uniquement | écran Configuration + message « Lien d'une version inconnue » |
 | `t` | non | `A` \| `B` \| `C` | liste blanche | `A` |
-| `p` | oui | liste `taux.rôle` séparée par `,` | 1 à 30 entrées ; taux entier 0 à 1000 ; rôle = index dans `ROLES` | entrée invalide ignorée ; 0 entrée valide → Configuration |
+| `p` | oui, répétable | `taux\|libellé`, un paramètre `p` par participant | 1 à 30 participants ; taux entier 0 à 1000 (€/h) ; libellé 1 à 40 caractères, nettoyé comme `n` | participant invalide ignoré ; 0 participant valide → Configuration |
 | `s` | non | timestamp Unix en secondes, entier | 2020-01-01 ≤ s ≤ maintenant + 60 s | Configuration |
 | `e` | non | timestamp Unix en secondes, entier | s < e ≤ s + 86 400 | ignoré (retour à l'écran Compteur) |
 | `n` | non | texte | 0 à 60 caractères après trim, caractères de contrôle retirés | vide |
 
-- Les rôles ne sont **jamais du texte libre dans l'URL** : c'est un index dans une liste fixe
-  `ROLES` définie dans le code. Ça empêche d'injecter un faux texte « officiel » dans la liste
-  des participants. Le titre `n` est le seul texte libre et il est affiché en `textContent`.
+- **Chaque participant est libre** : on choisit son libellé (« Kevin du marketing ») et ce qu'il
+  gagne de l'heure. `p` est le seul paramètre répétable ; pour tous les autres, on garde le
+  premier (CL-7). Le séparateur est le premier `|` : un `|` dans le libellé reste du texte.
+- Les libellés et le titre `n` sont les seuls textes libres. Ils sont affichés en `textContent`,
+  jamais sous forme de lien.
 - Tarifs : `A` « Point rapide » ×1 ; `B` « Sans ordre du jour » ×1,5 ; `C` « Aurait pu être un
   mail » ×2.
-- `ROLES` (index → libellé, taux suggéré) : 0 Cheffe de projet (68) · 1 Dev qui code sous la table
-  (48) · 2 Responsable « transverse » (72) · 3 Celui qui a la caméra coupée (51) · 4 Stagiaire qui
-  prend les notes (6) · 5 Quelqu'un du juridique, au cas où (80) · 6 Le N+2 qui « passe juste »
-  (95) · 7 Consultant externe (120) · 8 Patrick (55). L'ordre ne change jamais (les vieux liens en
-  dépendent) ; on ajoute seulement à la fin.
+- `ROLES` : suggestions proposées dans le formulaire (un `<datalist>` sur le champ libellé, qui
+  pré-remplit aussi le taux si le champ taux est vide). Elles ne sont jamais référencées dans
+  l'URL. Liste (libellé, taux suggéré) : Cheffe de projet (68) · Dev qui code sous la table
+  (48) · Responsable « transverse » (72) · Celui qui a la caméra coupée (51) · Stagiaire qui
+  prend les notes (6) · Quelqu'un du juridique, au cas où (80) · Le N+2 qui « passe juste »
+  (95) · Consultant externe (120) · Patrick (55).
 
 ## Calcul
 
@@ -51,14 +54,16 @@
 ## Critères d'acceptation
 
 - **CA-1** Sans paramètre, l'écran Configuration s'affiche avec 5 participants pré-remplis
-  (rôles 0 à 4) et le tarif B sélectionné.
+  (les 5 premières suggestions) et le tarif B sélectionné. Chaque participant a deux champs
+  étiquetés : « Qui » (libellé) et « €/heure » (taux), plus un bouton « Retirer ».
 - **CA-2** « Lancer le compteur » met `s = maintenant` dans l'URL (via `history.replaceState`) et
   affiche le Compteur.
 - **CA-3** Deux navigateurs qui ouvrent la même URL de Compteur affichent le même montant à
   ±0,01 € près, au même instant.
 - **CA-4** Le montant se met à jour chaque seconde. Avec `prefers-reduced-motion`, aucune
   animation ni lueur, mais la mise à jour du chiffre continue.
-- **CA-5** Changer le tarif ou ajouter/retirer un participant pendant le Compteur met l'URL à jour
+- **CA-5** Changer le tarif, ajouter/retirer un participant, ou modifier son libellé ou son taux
+  pendant le Compteur met l'URL à jour
   et recalcule tout depuis `s` (le montant peut sauter, c'est voulu : « tarif rétroactif »).
 - **CA-6** « Terminer » ajoute `e = maintenant`, affiche le Ticket, et le montant ne bouge plus.
 - **CA-7** « Copier le lien » copie l'URL courante complète ; confirmation visible et annoncée
@@ -77,8 +82,10 @@
 - **CL-2** Durée > 24 h sans `e` → le compteur s'arrête à 24 h et affiche « Réunion de plus de
   24 h. Respirez. »
 - **CL-3** `e ≤ s` → `e` ignoré.
-- **CL-4** `p` avec 31 entrées ou plus → on garde les 30 premières + message.
-- **CL-5** Taux décimal, négatif, `1e3`, `NaN`, rôle inexistant → entrée ignorée.
+- **CL-4** 31 paramètres `p` ou plus → on garde les 30 premiers + message.
+- **CL-5** Taux décimal, négatif, `1e3`, `NaN` ; `p` sans `|` ; libellé vide ou de plus de 40
+  caractères après nettoyage → participant ignoré. Libellé avec du HTML → affiché tel quel, en texte.
+- **CL-11** Deux participants avec le même libellé → autorisé (deux Kevin, ça arrive).
 - **CL-6** Tous les taux à 0 → montant 0,00 € et message « Réunion bénévole. Suspect. »
 - **CL-7** Paramètres en double (`?t=A&t=C`) → on prend le premier.
 - **CL-8** Query de plus de 4 Ko → Configuration + message « Lien trop long ».
@@ -89,8 +96,12 @@
 
 ## Modèle de menace
 
-- Texte libre : seulement `n`, 60 caractères, `textContent`, caractères de contrôle et
-  bidirectionnels (U+202A à U+202E, U+2066 à U+2069) retirés.
+- Textes libres : `n` (60 caractères) et les libellés des participants (40 caractères chacun,
+  30 au plus). Affichés en `textContent`, caractères de contrôle et bidirectionnels
+  (U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069) retirés, jamais transformés en lien.
+- Risque accepté : un lien forgé peut afficher un libellé trompeur (« Cliquez sur ce lien »). La
+  parade est la longueur bornée et l'absence de lien cliquable ; on ne cherche pas à filtrer le
+  sens des mots.
 - Aucun paramètre ne finit dans un `href`, `src` ou `style`.
 - Un lien ne peut pas geler la page : nombre d'entrées et durée bornés.
 
@@ -110,4 +121,5 @@
 
 - Pas de pause : un lien partagé ne peut pas apprendre une pause après coup, donc on l'enlève
   plutôt que d'avoir des compteurs qui divergent.
-- Pas de nom de participant libre (voir Modèle de menace). Les rôles drôles sont une liste fixe.
+- Participants libres (libellé + taux), validé par Gonni le 14/10/2026. Les rôles drôles restent
+  proposés comme suggestions.

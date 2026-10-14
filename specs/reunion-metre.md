@@ -74,6 +74,10 @@
 - **CA-9** L'afficheur montre derrière les chiffres des « 8 » fantômes du même nombre de
   caractères que le montant.
 - **CA-10** Le `CollectionTag` affiche « Look 01/03 » et mène au look suivant.
+- **CA-11** À 1280×720, l'écran Compteur tient sans défilement vertical avec jusqu'à 8
+  participants (c'est l'écran qu'on laisse affiché pendant la réunion). Au-delà de 8, la liste des
+  participants défile dans son propre cadre, le montant reste toujours visible. Le `CollectionTag`
+  peut être sous la ligne de flottaison.
 
 ## Cas limites
 

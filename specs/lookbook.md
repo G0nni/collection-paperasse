@@ -91,3 +91,8 @@ l'affiche « Avis à la population » et les trois documents de la collection.
   14/10/2026, maquette validée le même jour.
 - Version « tout sur un écran » (bandeau compact, post-its sur les côtés puis dessous, fiches
   complètes), validée par Gonni le 14/10/2026.
+- Numéros de look à 26 px (seuil ≥ 24 px au lieu de 34) et numéro + nom sur la même ligne à
+  1280 px seulement (le Look 03 ne tient qu'à partir de 1220 px), pour coller à la maquette
+  validée. Décidé par l'orchestrateur pendant la retouche « tout sur un écran », à confirmer.
+- Le titre de l'affiche ne doit jamais sortir de l'affiche, y compris avec une taille de police
+  du navigateur agrandie (réglage « Très grande »).

@@ -1,12 +1,6 @@
 import { defineConfig } from "astro/config";
-import { CSP_DIRECTIVES, SITE, baseFor } from "@paperasse/shared/config";
+import { lookConfig } from "@paperasse/shared/look-config";
 
-// Sortie 100 % statique, CSP par meta tag avec hashes (voir CLAUDE.md, Sécurité).
-export default defineConfig({
-  site: SITE,
-  base: baseFor(null),
-  output: "static",
-  trailingSlash: "always",
-  build: { inlineStylesheets: "never" },
-  security: { csp: { directives: CSP_DIRECTIVES } },
-});
+// Config commune à toute la collection (CSP, base, sortie statique) : voir packages/shared.
+// PAPERASSE_ORIGIN (facultatif) change l'origine autorisée par la CSP, pour les e2e locaux.
+export default defineConfig(lookConfig(null, process.env));

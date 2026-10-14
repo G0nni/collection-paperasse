@@ -1,0 +1,105 @@
+---
+// Aperçu du Look 02 : l'acte de pari de Juré Craché, punaisé, avec son sceau de cire.
+import "@fontsource/young-serif/400.css";
+import "@fontsource/courier-prime/400.css";
+
+type Props = { label: string };
+
+const { label } = Astro.props;
+---
+
+<div class="acte" role="img" aria-label={label}>
+  <span class="pin" aria-hidden="true"></span>
+  <div class="frame">
+    <p class="republic">République des potes</p>
+    <p class="title">Acte de pari</p>
+    <p class="terms">
+      <span class="line">Kevin arrivera en retard samedi.</span>
+      <span class="line">Enjeu&nbsp;: un (1) kebab.</span>
+    </p>
+    <svg class="seal" width="64" height="64" viewBox="0 0 150 150" aria-hidden="true">
+      <circle
+        cx="75"
+        cy="75"
+        r="62"
+        fill="#9E2A24"
+        stroke="#9E2A24"
+        stroke-width="12"
+        stroke-dasharray="7 5"
+        stroke-linecap="round"
+      ></circle>
+      <circle cx="75" cy="75" r="50" fill="none" stroke="#6E1C18" stroke-width="3"></circle>
+      <text
+        x="75"
+        y="92"
+        text-anchor="middle"
+        font-family="Young Serif"
+        font-size="48"
+        fill="#F6E3D8"
+      >
+        §
+      </text>
+    </svg>
+  </div>
+</div>
+
+<style>
+  .acte {
+    position: relative;
+    padding: 0.5rem;
+    background: #f7f9f3;
+    box-shadow: 0 16px 28px rgb(60 30 5 / 0.35);
+  }
+
+  .pin {
+    position: absolute;
+    top: -9px;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #b9f6ca, #1e7a46 70%);
+    box-shadow: 2px 3px 3px rgb(0 0 0 / 0.35);
+  }
+
+  .frame {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.25rem 1.125rem;
+    border: 4px double #1e4636;
+    color: #1e4636;
+    text-align: center;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .republic {
+    font-size: 0.625rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+
+  .title {
+    font-family: "Young Serif", serif;
+    font-size: 2.125rem;
+    line-height: 1;
+  }
+
+  .terms {
+    font-family: "Courier Prime", monospace;
+    font-size: 0.8125rem;
+  }
+
+  .line {
+    display: block;
+  }
+
+  .seal {
+    flex: none;
+  }
+</style>

@@ -44,6 +44,9 @@ Chaque point a un niveau, un emplacement précis et une correction proposée :
 - **Important** : dette réelle ou risque de bug, à corriger dans ce tour si possible.
 - **Mineur** : style, lisibilité.
 
+Un trou dans l'outillage de test ou de contrôle n'est **Bloquant** que s'il masque un défaut
+réellement présent dans le code livré. Sinon, **Important** au plus.
+
 Format : `[Bloquant] apps/jure-crache/src/lib/act.ts:42 · … → correction : …`
 
 Termine par un verdict d'une ligne : « Prêt » ou « Pas prêt : N bloquants ». Pas de compliments de

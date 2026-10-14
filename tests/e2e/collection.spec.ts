@@ -1,7 +1,9 @@
 // Garde-fous communs à toute la collection. Chaque look ajoute ses propres tests dans
-// tests/e2e/<look>/ (voir l'agent tester).
+// tests/e2e/<look>/ (voir l'agent tester). Chaque test tourne une fois par projet Playwright :
+// desktop (1280 px) et mobile-360 (360 px). La CSP des 4 pages est dans csp.spec.ts.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { NBSP } from "./support/text";
 
 const pages = [
   { path: "", name: "lookbook" },
@@ -36,22 +38,12 @@ for (const { path, name } of pages) {
       expect(errors, "erreurs console / JS").toEqual([]);
     });
 
-    test("a une CSP stricte", async ({ page }) => {
+    test("n'a aucune violation axe (WCAG 2.2 AA + bonnes pratiques)", async ({ page }) => {
       await page.goto(path);
-      const csp = await page
-        .locator('meta[http-equiv="content-security-policy"]')
-        .getAttribute("content");
-      expect(csp).toBeTruthy();
-      expect(csp).not.toContain("unsafe-inline");
-      expect(csp).not.toContain("unsafe-eval");
-      expect(csp).toContain("default-src 'self'");
-      expect(csp).toContain("object-src 'none'");
-      expect(csp).toContain("base-uri 'self'");
-    });
-
-    test("n'a aucune violation axe", async ({ page }) => {
-      await page.goto(path);
-      const results = await new AxeBuilder({ page }).analyze();
+      await page.evaluate(() => document.fonts.ready);
+      const results = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+        .analyze();
       expect(results.violations).toEqual([]);
     });
 
@@ -65,21 +57,67 @@ for (const { path, name } of pages) {
   });
 }
 
-test("l'étiquette de collection fait le tour des looks", async ({ page }) => {
+// CA-5 du lookbook (specs/lookbook.md, « Le CollectionTag ») : texte exact, avec des « · »
+// visibles entre les blocs et une insécable avant « : ». Insécable aussi avant « → », pour que
+// la flèche ne parte jamais seule à la ligne (reviewer, tour 2).
+const TOUR = [
+  {
+    slug: "reunion-metre",
+    text: `COLLECTION PAPERASSE · AH26 · LOOK 01/03 · Suivant${NBSP}: Juré Craché${NBSP}→`,
+    next: "jure-crache/",
+  },
+  {
+    slug: "jure-crache",
+    text: `COLLECTION PAPERASSE · AH26 · LOOK 02/03 · Suivant${NBSP}: Le SAV de ta vie${NBSP}→`,
+    next: "sav-de-ta-vie/",
+  },
+  {
+    slug: "sav-de-ta-vie",
+    text: `COLLECTION PAPERASSE · AH26 · LOOK 03/03 · Retour au lookbook${NBSP}→`,
+    next: "",
+  },
+];
+
+test("CA-5 · l'étiquette de collection fait le tour des looks, au texte exact", async ({
+  page,
+  baseURL,
+}) => {
+  const base = new URL(baseURL ?? "http://localhost/collection-paperasse/");
   await page.goto("");
-  await page.getByRole("link", { name: /Look 01/ }).click();
-  await expect(page).toHaveURL(/reunion-metre\/$/);
+  await page.getByRole("link", { name: /Réunion-mètre/u }).click();
 
-  const tag = page.getByRole("navigation", { name: "Collection" });
-  await expect(tag).toContainText("Look 01/03");
-  await tag.getByRole("link", { name: /Suivant/ }).click();
-  await expect(page).toHaveURL(/jure-crache\/$/);
+  for (const stop of TOUR) {
+    await expect(page).toHaveURL(new URL(`${stop.slug}/`, base).href);
+    const tags = page.getByRole("navigation", { name: "Collection", exact: true });
+    await expect(tags).toHaveCount(1);
+    const tag = tags.first();
+    expect(await tag.evaluate((element) => element.tagName)).toBe("NAV");
 
-  await expect(tag).toContainText("Look 02/03");
-  await tag.getByRole("link", { name: /Suivant/ }).click();
-  await expect(page).toHaveURL(/sav-de-ta-vie\/$/);
+    // Texte rendu (majuscules CSS comprises). Seuls les blancs sécables sont normalisés :
+    // les insécables avant « : » et « → » doivent être là telles quelles.
+    const text = (await tag.innerText()).replace(/[ \t\r\n]+/gu, " ").trim();
+    expect(text).toBe(stop.text);
 
-  await expect(tag).toContainText("Look 03/03");
-  await tag.getByRole("link", { name: /lookbook/ }).click();
-  await expect(page).toHaveURL(/collection-paperasse\/$/);
+    // « Collection Paperasse · AH26 » renvoie au lookbook, le dernier bloc va à la suite.
+    const links = tag.getByRole("link");
+    await expect(links).toHaveCount(2);
+    await expect(links.first()).toHaveAccessibleName("Collection Paperasse · AH26");
+    await expect(links.first()).toHaveAttribute("href", base.pathname);
+    await expect(links.last()).toHaveAttribute("href", `${base.pathname}${stop.next}`);
+
+    // Cousue en bas : le contenu principal ne passe pas sous l'étiquette.
+    const tagTop = (await tag.boundingBox())?.y ?? 0;
+    const below = await page
+      .locator("main")
+      .evaluateAll(
+        (mains, top) =>
+          mains.filter((main) => main.getBoundingClientRect().bottom > top + 1).length,
+        tagTop,
+      );
+    expect(below, "le contenu principal ne doit pas passer sous l'étiquette").toBe(0);
+
+    await links.last().click();
+  }
+  await expect(page).toHaveURL(base.href);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Collection Paperasse");
 });

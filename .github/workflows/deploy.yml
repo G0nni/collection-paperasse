@@ -26,6 +26,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # Arrête la publication si une page de site/ n'a pas la CSP de production (script-src
+      # https://g0nni.github.io/collection-paperasse/ et le reste fermé) : un build lancé avec
+      # une PAPERASSE_ORIGIN de test, par exemple.
+      - name: Contrôle de la CSP de production
+        run: node scripts/check-csp.mjs site https://g0nni.github.io/collection-paperasse/
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site

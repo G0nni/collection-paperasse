@@ -30,7 +30,7 @@ on corrige le code, ou on modifie la spec explicitement dans le même commit, en
 
 ## Stack
 
-- pnpm workspaces, Node ≥ 22.12, TypeScript 6 en mode `strict` (TS 7 n'est pas encore supporté
+- pnpm workspaces, Node ≥ 22.18 (scripts .mjs qui importent du TypeScript), TypeScript 6 en mode `strict` (TS 7 n'est pas encore supporté
   par `@astrojs/check`).
 - Astro 7, sortie **100 % statique** (`output: 'static'`). Aucun adaptateur serveur.
 - **Pas de framework UI.** L'interactivité se fait en TypeScript vanilla dans des `<script>`
@@ -45,13 +45,14 @@ on corrige le code, ou on modifie la spec explicitement dans le même commit, en
 ```bash
 pnpm install
 pnpm dev --filter reunion-metre   # dev d'une app
-pnpm build                        # build toutes les apps puis assemble site/
+pnpm build                        # build de production (CSP limitée au préfixe Pages) + site/
+pnpm build:e2e                    # même build, CSP limitée à http://127.0.0.1:4321 (PAPERASSE_ORIGIN)
 pnpm check                        # astro check + tsc sur tout le monorepo
 pnpm lint                         # eslint + prettier --check
 pnpm test                         # vitest sur tout le monorepo
-pnpm test:e2e                     # playwright sur le site assemblé (après pnpm build)
+pnpm test:e2e                     # playwright sur site/ : exige pnpm build:e2e avant
 pnpm audit --prod                 # audit des dépendances
-pnpm verify                       # check + lint + test + build + test:e2e : la porte de sortie
+pnpm verify                       # check + lint + test + build:e2e + test:e2e : la porte de sortie
 ```
 
 ## Déploiement
@@ -59,7 +60,9 @@ pnpm verify                       # check + lint + test + build + test:e2e : la 
 GitHub Pages, un seul déploiement. `scripts/assemble.mjs` copie le build de chaque app dans
 `site/` : le lookbook à la racine, chaque look dans son sous-dossier
 (`/collection-paperasse/reunion-metre/`…). Chaque app définit `base` en conséquence.
-Tout lien interne passe par `import.meta.env.BASE_URL`, jamais par un chemin absolu en dur.
+Les liens d'une app vers elle-même passent par `import.meta.env.BASE_URL` ; les liens entre apps
+(lookbook ↔ looks) passent par `baseFor()` de `packages/shared/src/config.ts`, puisque chaque app
+a sa propre base. Jamais de chemin absolu en dur.
 
 ## Sécurité
 
@@ -72,9 +75,17 @@ Le modèle de menace est court mais sérieux : **quelqu'un forge un lien et l'en
   `new Function`** avec une donnée utilisateur. On écrit le texte avec `textContent`.
   ESLint l'interdit (`no-restricted-properties` / `no-restricted-syntax`).
 - Jamais de donnée utilisateur dans un `href`, un `src` ou un attribut `style`.
+- Config Astro commune : `lookConfig()` de `packages/shared/src/look-config.ts` (CSP, base,
+  `assetsInlineLimit: 0` pour que les petites polices ne soient pas inlinées en `data:`).
+  Scripts, styles, polices et images ne sont autorisés que sous le préfixe de la collection
+  (sur `g0nni.github.io`, `'self'` couvrirait tous les repos Pages du compte).
 - CSP activée via `security.csp` d'Astro (meta tag avec hashes). Conséquence : **pas d'attribut
   `style="…"` dans le HTML** ; les valeurs dynamiques passent par
   `element.style.setProperty('--var', …)` ou par des classes.
+- Exception connue : Astro 7 ajoute toujours à `script-src` les hashes de ses 5 directives client
+  (`idle`, `load`, `media`, `only`, `visible`), sans option pour les retirer. Ils sont tolérés ;
+  les tests les acceptent via une liste blanche calculée depuis `astro/runtime/client/*.prebuilt.js`,
+  tout autre hash fait échouer les tests.
 - Taille max du hash/query décodé : 4 Ko. Au-delà, on refuse proprement.
 - localStorage : lecture dans un `try/catch`, données validées comme une URL, versionnées
   (`{ v: 1, … }`), avec migration ou remise à zéro si la version est inconnue.

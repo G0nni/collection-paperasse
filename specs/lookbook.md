@@ -60,6 +60,9 @@ l'affiche « Avis à la population » et les trois documents de la collection.
 - Les inclinaisons s'appliquent aux aperçus, à l'affiche et aux post-its (comme sur la maquette).
   Les étiquettes kraft (fiches) et les boutons restent droits, pour la lisibilité. Les post-its
   sont en Courier Prime, comme sur la maquette.
+  Le lien GitHub posé sur un post-it penche avec lui.
+- Un aperçu peut contenir un SVG inline décoratif (le sceau de l'acte), en `aria-hidden`.
+- Insécable : U+00A0 partout (pas d'espace fine U+202F), pour un seul cas à tester.
 - Maquette de référence : canvas Design « Projets débiles », artboard « Lookbook · Collection
   Paperasse (avis à la population) ».
 

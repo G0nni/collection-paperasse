@@ -179,42 +179,10 @@ test.describe("lookbook · tester", () => {
   // CA-2
   // -------------------------------------------------------------------------------------------
 
-  test("CA-2 · à 360 px, les cartes s'empilent et tiennent dans l'écran", async ({
-    page,
-  }, testInfo) => {
-    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-    await page.setViewportSize({ width: 360, height: 780 });
-    await page.goto("");
-    const [first, second, third] = await cardsOf(page);
-    if (first === undefined || second === undefined || third === undefined) throw new Error();
-    expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
-    expect(third.y).toBeGreaterThanOrEqual(second.y + second.height);
-    for (const box of [first, second, third]) {
-      expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width).toBeLessThanOrEqual(360);
-    }
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
-  });
-
-  for (const width of [960, 1440]) {
-    test(`CA-2 · à ${width} px, trois colonnes alignées sans chevauchement`, async ({
-      page,
-    }, testInfo) => {
-      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("");
-      const [first, second, third] = await cardsOf(page);
-      if (first === undefined || second === undefined || third === undefined) throw new Error();
-      expect(Math.abs(second.y - first.y)).toBeLessThan(1);
-      expect(Math.abs(third.y - first.y)).toBeLessThan(1);
-      expect(second.x).toBeGreaterThanOrEqual(first.x + first.width);
-      expect(third.x).toBeGreaterThanOrEqual(second.x + second.width);
-      expect(third.x + third.width).toBeLessThanOrEqual(width);
-    });
-  }
+  // Disposition « tout sur un écran » (specs/lookbook.md, commit 5f0cb22) : CA-2 ne dit plus
+  // « trois colonnes dès 960 px » mais suit le tableau « Disposition » (≥ 1000 / 640-999 /
+  // < 640 px), testé à 360, 800 et 1280 px. Les anciens tests à 360, 960 et 1440 px sont
+  // remplacés par ceux du bloc « lookbook · disposition » en fin de fichier.
 
   // -------------------------------------------------------------------------------------------
   // CA-3
@@ -296,12 +264,13 @@ test.describe("lookbook · tester", () => {
   // -------------------------------------------------------------------------------------------
 
   // 1280 px (desktop) et 360 px (mobile-360) : passe axe unique dans collection.spec.ts, avec
-  // les mêmes règles. Ici, seulement la largeur de bascule de CA-2.
-  test("CA-4 · axe : zéro violation à 960 px (WCAG 2.2 AA + bonnes pratiques)", async ({
+  // les mêmes règles. Ici, la disposition intermédiaire de CA-2 : « 640 à 999 px » (tableau
+  // « Disposition » de specs/lookbook.md), qui remplace l'ancienne bascule à 960 px.
+  test("CA-4 · axe : zéro violation à 800 px (WCAG 2.2 AA + bonnes pratiques)", async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-    await page.setViewportSize({ width: 960, height: 900 });
+    await page.setViewportSize({ width: 800, height: 900 });
     await page.goto("");
     await page.evaluate(() => document.fonts.ready);
     const results = await new AxeBuilder({ page })
@@ -612,7 +581,9 @@ test.describe("lookbook · tester", () => {
     expect(bannerColors).toContain("rgb(179, 38, 30)");
   });
 
-  test("Design · l'orange des numéros (#C2410C) n'apparaît qu'en ≥ 34 px", async ({ page }) => {
+  // specs/lookbook.md (Design), commit 0c414b6 : « numéros de look #C2410C (uniquement en gros,
+  // ≥ 24 px : contraste 3,54:1 sur le kraft, conforme au seuil 3:1) ». Le seuil était 34 px.
+  test("Design · l'orange des numéros (#C2410C) n'apparaît qu'en ≥ 24 px", async ({ page }) => {
     await page.goto("");
     const uses = await page.locator("body").evaluate((body) =>
       [...body.querySelectorAll("*")]
@@ -629,7 +600,7 @@ test.describe("lookbook · tester", () => {
         })),
     );
     expect(uses.map((use) => use.text)).toEqual(["Look 01", "Look 02", "Look 03"]);
-    for (const use of uses) expect(use.size, use.text).toBeGreaterThanOrEqual(34);
+    for (const use of uses) expect(use.size, use.text).toBeGreaterThanOrEqual(24);
   });
 
   test("Design · polices auto-hébergées : Alfa Slab One, JetBrains Mono et celles des aperçus", async ({
@@ -802,28 +773,9 @@ const PREVIEW_OF: Record<(typeof LOOKS)[number]["slug"], { document: RegExp; fon
 };
 
 test.describe("lookbook · tester tour 2", () => {
-  // CA-2 : « En dessous de 960 px, les cartes s'empilent sur une colonne ». Le tour 1 ne testait
-  // que 360 px, où deux colonnes ne tiennent de toute façon pas.
-  for (const width of [600, 768, 959]) {
-    test(`CA-2 · à ${width} px (sous 960), une seule colonne`, async ({ page }, testInfo) => {
-      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("");
-      const [first, second, third] = await cardsOf(page);
-      if (first === undefined || second === undefined || third === undefined) throw new Error();
-      expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
-      expect(third.y).toBeGreaterThanOrEqual(second.y + second.height);
-      // Une colonne : mêmes bords gauche et droit pour les trois cartes.
-      for (const box of [second, third]) {
-        expect(Math.abs(box.x - first.x)).toBeLessThan(1);
-        expect(Math.abs(box.width - first.width)).toBeLessThan(1);
-      }
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow).toBeLessThanOrEqual(0);
-    });
-  }
+  // CA-2 (tour 2) testait « une seule colonne sous 960 px » à 600, 768 et 959 px. La spec dit
+  // désormais « 640 à 999 px : 2 colonnes » : voir les tests de seuils du bloc
+  // « lookbook · disposition » en fin de fichier (639, 640, 999, 1000 px).
 
   // Contenu : « un aperçu statique en HTML/CSS (une miniature du document du look, role="img"
   // avec un nom accessible) » ; Design : « chaque look = un aperçu de son document (ticket, acte,
@@ -1057,4 +1009,816 @@ test.describe("lookbook · tester tour 3", () => {
     expect(Math.abs(link)).toBeGreaterThan(0.2);
     expect(link).toBeCloseTo(note, 1);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Disposition « tout sur un écran » (specs/lookbook.md, section « Disposition », CA-2 réécrit,
+// CA-6, CA-7 ; commit 5f0cb22).
+// ---------------------------------------------------------------------------------------------
+
+type Box = { x: number; y: number; width: number; height: number };
+
+const right = (box: Box) => box.x + box.width;
+const bottom = (box: Box) => box.y + box.height;
+const centerY = (box: Box) => box.y + box.height / 2;
+
+/** Boîte d'un élément visible ; les boîtes des éléments inclinés englobent la rotation. */
+async function boxOf(locator: ReturnType<Page["locator"]>, what: string): Promise<Box> {
+  const box = await locator.boundingBox();
+  if (box === null) throw new Error(`${what} invisible`);
+  return box;
+}
+
+/**
+ * Un post-it, repéré par son texte (spec, « Contenu ») et non par une classe CSS : l'ancêtre le
+ * plus proche du texte qui porte un fond. Renvoie sa boîte (rotation comprise, comme
+ * boundingBox) et la couleur de ce fond.
+ */
+async function postItOf(page: Page, text: RegExp) {
+  const anchor = page.getByRole("contentinfo").getByText(text);
+  await expect(anchor).toHaveCount(1);
+  return anchor.evaluate((element) => {
+    let node: Element | null = element;
+    while (node !== null && getComputedStyle(node).backgroundColor === "rgba(0, 0, 0, 0)") {
+      node = node.parentElement;
+    }
+    if (node === null) return null;
+    const rect = node.getBoundingClientRect();
+    return {
+      box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      background: getComputedStyle(node).backgroundColor,
+      // Le lien GitHub est-il posé sur ce post-it ?
+      hasRepoLink: node.querySelector('a[href*="github.com"]') !== null,
+    };
+  });
+}
+
+/** « jaune » : rouge et vert dominants, bleu nettement plus bas (aucun token pour ce post-it). */
+function isYellow(background: string) {
+  const [r = 0, g = 0, b = 0] = (background.match(/\d+/gu) ?? []).map(Number);
+  return r >= 200 && g >= 180 && b <= 160 && r - b >= 80;
+}
+
+/** L'affiche, les trois cartes et les deux post-its (jaune puis bleu), tels qu'affichés. */
+async function layoutOf(page: Page) {
+  const [first, second, third] = await cardsOf(page);
+  if (first === undefined || second === undefined || third === undefined) throw new Error();
+  // specs/lookbook.md, « Contenu » : jaune « Prochaine collection : bientôt. », bleu « Aucun
+  // cookie, aucun compte, aucun serveur. ». Repérés par leur texte, couleur vérifiée : un
+  // échange des couleurs ou de l'ordre du HTML ne passe plus inaperçu.
+  const yellowNote = await postItOf(page, /Prochaine collection/u);
+  const blueNote = await postItOf(page, /Aucun cookie/u);
+  if (yellowNote === null || blueNote === null) throw new Error("post-it sans fond");
+  expect(isYellow(yellowNote.background), `post-it jaune : ${yellowNote.background}`).toBe(true);
+  expect(blueNote.background, "post-it bleu #A7E0F2").toBe("rgb(167, 224, 242)");
+  const banner = page.getByRole("banner");
+  const posterWidth = await banner.evaluate((element) =>
+    element instanceof HTMLElement ? element.offsetWidth : 0,
+  );
+  const mainWidth = await page
+    .getByRole("main")
+    .evaluate((element) => (element instanceof HTMLElement ? element.offsetWidth : 0));
+  return {
+    cards: [first, second, third] as const,
+    poster: await boxOf(banner, "affiche"),
+    posterWidth,
+    mainWidth,
+    yellow: yellowNote.box,
+    blue: blueNote.box,
+  };
+}
+
+type Layout = Awaited<ReturnType<typeof layoutOf>>;
+
+async function noHorizontalScroll(page: Page) {
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow, "défilement horizontal").toBeLessThanOrEqual(0);
+}
+
+/** Tableau « Disposition », ligne « ≥ 1000 px ». */
+function expectWide(layout: Layout, width: number) {
+  const { cards, poster, yellow, blue } = layout;
+  const [first, second, third] = cards;
+  // 3 colonnes : même ligne, côte à côte, dans l'écran.
+  expect(Math.abs(second.y - first.y)).toBeLessThan(1);
+  expect(Math.abs(third.y - first.y)).toBeLessThan(1);
+  expect(second.x).toBeGreaterThanOrEqual(right(first));
+  expect(third.x).toBeGreaterThanOrEqual(right(second));
+  expect(right(third)).toBeLessThanOrEqual(width);
+  // Affiche : bandeau centré.
+  expect(Math.abs(poster.x + poster.width / 2 - width / 2)).toBeLessThan(2);
+  // Post-its : jaune à gauche, bleu à droite de l'affiche, sur sa hauteur, au-dessus des looks.
+  expect(right(yellow), "jaune à gauche de l'affiche").toBeLessThanOrEqual(poster.x);
+  expect(blue.x, "bleu à droite de l'affiche").toBeGreaterThanOrEqual(right(poster));
+  for (const note of [yellow, blue]) {
+    expect(note.y).toBeLessThan(bottom(poster));
+    expect(bottom(note)).toBeGreaterThan(poster.y);
+    expect(bottom(note)).toBeLessThanOrEqual(first.y);
+    expect(note.x).toBeGreaterThanOrEqual(0);
+    expect(right(note)).toBeLessThanOrEqual(width);
+  }
+}
+
+/** Tableau « Disposition », ligne « 640 à 999 px ». */
+function expectMedium(layout: Layout) {
+  const { cards, posterWidth, mainWidth, yellow, blue } = layout;
+  const [first, second, third] = cards;
+  // Affiche pleine largeur (largeur de mise en page, hors inclinaison).
+  expect(Math.abs(posterWidth - mainWidth)).toBeLessThanOrEqual(1);
+  // 2 colonnes : 01 et 02 sur la même ligne, le 3e seul sur la ligne suivante, sous le 01.
+  expect(Math.abs(second.y - first.y)).toBeLessThan(1);
+  expect(second.x).toBeGreaterThanOrEqual(right(first));
+  expect(third.y).toBeGreaterThanOrEqual(Math.max(bottom(first), bottom(second)));
+  expect(Math.abs(third.x - first.x)).toBeLessThan(1);
+  expect(Math.abs(third.width - first.width)).toBeLessThan(1);
+  // Post-its côte à côte, sous les looks.
+  expect(Math.abs(centerY(blue) - centerY(yellow))).toBeLessThan(20);
+  expect(blue.x).toBeGreaterThanOrEqual(right(yellow));
+  for (const note of [yellow, blue]) expect(note.y).toBeGreaterThanOrEqual(bottom(third));
+}
+
+/** Tableau « Disposition », ligne « < 640 px ». */
+function expectNarrow(layout: Layout, width: number) {
+  const { cards, posterWidth, mainWidth, yellow, blue } = layout;
+  const [first, second, third] = cards;
+  expect(Math.abs(posterWidth - mainWidth)).toBeLessThanOrEqual(1);
+  // 1 colonne : empilées, mêmes bords, dans l'écran.
+  expect(second.y).toBeGreaterThanOrEqual(bottom(first));
+  expect(third.y).toBeGreaterThanOrEqual(bottom(second));
+  for (const box of [second, third]) {
+    expect(Math.abs(box.x - first.x)).toBeLessThan(1);
+    expect(Math.abs(box.width - first.width)).toBeLessThan(1);
+  }
+  for (const box of cards) {
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(right(box)).toBeLessThanOrEqual(width);
+  }
+  // Post-its l'un sous l'autre, sous les looks.
+  expect(yellow.y).toBeGreaterThanOrEqual(bottom(third));
+  expect(blue.y).toBeGreaterThanOrEqual(bottom(yellow));
+}
+
+test.describe("lookbook · disposition", () => {
+  test("CA-2 · à 1280 px : bandeau centré, titre sur une ligne, 3 colonnes, post-its de part et d'autre", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    expectWide(await layoutOf(page), 1280);
+    await noHorizontalScroll(page);
+
+    // « titre sur une ligne » : la hauteur de mise en page du h1 (hors inclinaison de l'affiche,
+    // qui décale le haut des fragments de texte) reste celle d'une ligne, pas de deux.
+    const title = await page.getByRole("heading", { level: 1 }).evaluate((h1) => ({
+      height: h1 instanceof HTMLElement ? h1.offsetHeight : 0,
+      fontSize: parseFloat(getComputedStyle(h1).fontSize),
+    }));
+    expect(title.height).toBeGreaterThan(0);
+    expect(title.height, "titre sur une ligne").toBeLessThan(1.6 * title.fontSize);
+  });
+
+  test("CA-2 · à 800 px : affiche pleine largeur, 2 colonnes, post-its côte à côte dessous", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 800, height: 900 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    expectMedium(await layoutOf(page));
+    await noHorizontalScroll(page);
+  });
+
+  test("CA-2 · à 360 px : affiche pleine largeur, 1 colonne, post-its l'un sous l'autre", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    expectNarrow(await layoutOf(page), 360);
+    await noHorizontalScroll(page);
+  });
+
+  // Les seuils du tableau, de part et d'autre de chaque bascule.
+  const thresholds = [
+    { width: 639, check: "narrow" },
+    { width: 640, check: "medium" },
+    { width: 999, check: "medium" },
+    { width: 1000, check: "wide" },
+  ] as const;
+  for (const { width, check } of thresholds) {
+    test(`CA-2 · seuil à ${width} px : disposition « ${check} »`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      const layout = await layoutOf(page);
+      if (check === "narrow") expectNarrow(layout, width);
+      if (check === "medium") expectMedium(layout);
+      if (check === "wide") expectWide(layout, width);
+      await noHorizontalScroll(page);
+    });
+  }
+
+  // Design : « numéro et nom du look sur la même ligne à 1280 px, largeur de la maquette ;
+  // repli autorisé en dessous ».
+  test("Design · à 1280 px, numéro et nom de chaque look sur la même ligne", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    for (const look of LOOKS) {
+      const card = page.getByRole("article", { name: look.name, exact: true });
+      const number = await boxOf(
+        card.getByText(`Look ${look.number}`, { exact: true }),
+        `numéro ${look.number}`,
+      );
+      const name = await boxOf(card.getByRole("heading", { name: look.name }), look.name);
+      expect(name.x, `${look.name} à droite du numéro`).toBeGreaterThanOrEqual(right(number));
+      expect(name.y, look.name).toBeLessThan(bottom(number));
+      expect(bottom(name), look.name).toBeGreaterThan(number.y);
+    }
+  });
+
+  // CA-6 : « À 1280×720, aucun défilement vertical : scrollHeight ≤ innerHeight, polices
+  // chargées. » Et la section « Disposition » : fiches complètes, affiche d'environ 160 px,
+  // « on réduit d'abord la hauteur des aperçus, jamais les fiches ».
+  test("CA-6 · à 1280×720, polices chargées, toute la page tient sans défilement vertical", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForLoadState("networkidle");
+    // Polices réellement chargées : sans elles, les replis système fausseraient la mesure.
+    const families = await page.evaluate(() =>
+      [...document.fonts]
+        .filter((font) => font.status === "loaded")
+        .map((font) => font.family.replaceAll('"', "")),
+    );
+    for (const family of [
+      "Alfa Slab One",
+      "JetBrains Mono",
+      "Doto",
+      "Young Serif",
+      "Courier Prime",
+    ]) {
+      expect(families, family).toContain(family);
+    }
+
+    const sizes = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      bodyScrollHeight: document.body.scrollHeight,
+      innerHeight,
+    }));
+    expect(sizes.scrollHeight).toBeLessThanOrEqual(sizes.innerHeight);
+    expect(sizes.bodyScrollHeight).toBeLessThanOrEqual(sizes.innerHeight);
+
+    // Tout est dans l'écran : affiche, fiche complète et lien de chaque look, post-its.
+    const inside = async (locator: ReturnType<Page["locator"]>, what: string) => {
+      const box = await boxOf(locator, what);
+      expect(box.y, `${what} : haut`).toBeGreaterThanOrEqual(0);
+      expect(bottom(box), `${what} : bas`).toBeLessThanOrEqual(720);
+    };
+    await inside(page.getByRole("banner"), "affiche");
+    for (const look of LOOKS) {
+      const card = page.getByRole("article", { name: look.name, exact: true });
+      await inside(card, look.name);
+      for (const term of await card.getByRole("term").all()) await inside(term, look.name);
+      for (const value of await card.getByRole("definition").all()) await inside(value, look.name);
+      await inside(card.getByRole("link"), `lien ${look.name}`);
+    }
+    for (const note of await page
+      .getByRole("contentinfo")
+      .getByText(/Prochaine collection|Aucun cookie|GitHub/u)
+      .all()) {
+      await inside(note, await note.innerText());
+    }
+
+    // Bandeau compact : environ 160 px de haut (hors inclinaison).
+    const posterHeight = await page
+      .getByRole("banner")
+      .evaluate((element) => (element instanceof HTMLElement ? element.offsetHeight : 0));
+    expect(posterHeight).toBeGreaterThanOrEqual(120);
+    expect(posterHeight).toBeLessThanOrEqual(200);
+  });
+
+  // « Si la place manque, on réduit d'abord la hauteur des aperçus, jamais les fiches » : la
+  // fiche a les mêmes corps de texte à 1280 px qu'à 360 px, où rien ne contraint la hauteur.
+  test("CA-6 · les fiches ne sont pas réduites pour tenir à 1280×720", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    const fontSizes = async () =>
+      page
+        .getByRole("article")
+        .evaluateAll((cards) =>
+          cards.map((card) =>
+            [...card.querySelectorAll("p, dt, dd, a")]
+              .filter((node) => node.closest('[role="img"]') === null)
+              .map((node) => getComputedStyle(node).fontSize),
+          ),
+        );
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto("");
+    const narrow = await fontSizes();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    expect(await fontSizes()).toEqual(narrow);
+    // Aucune fiche rognée : rien n'y masque son débordement, et l'étiquette (le parent de la
+    // liste Matière / Coupe / Prix) contient tout son contenu.
+    const clipped = await page.getByRole("article").evaluateAll((cards) =>
+      cards.flatMap((card) => {
+        const label = card.querySelector("dl")?.parentElement;
+        if (!(label instanceof HTMLElement)) return ["étiquette introuvable"];
+        const hidden = [label, ...label.querySelectorAll("*")]
+          .filter((node) => getComputedStyle(node).overflow !== "visible")
+          .map((node) => `${node.tagName} : overflow masqué`);
+        if (label.scrollHeight > label.clientHeight + 1) hidden.push("étiquette qui déborde");
+        return hidden;
+      }),
+    );
+    expect(clipped).toEqual([]);
+  });
+
+  // CA-7 : « L'ordre de tabulation suit l'ordre du HTML : affiche, looks 01 à 03, puis le lien
+  // GitHub. » Contenu : les post-its viennent « après les looks (ordre de lecture et de
+  // tabulation), même quand ils s'affichent sur les côtés ». Testé aux trois dispositions.
+  for (const { width, height } of [
+    { width: 1280, height: 720 },
+    { width: 800, height: 900 },
+    { width: 360, height: 780 },
+  ]) {
+    test(`CA-7 · à ${width} px, Tab parcourt les looks 01 à 03 puis le lien GitHub`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height });
+      await page.goto("");
+      const expected = [...LOOKS.map((look) => `${BASE_PATH}${look.slug}/`), REPO_URL];
+      const reached: (string | null)[] = [];
+      for (let press = 0; press < expected.length; press += 1) {
+        await page.keyboard.press("Tab");
+        reached.push(
+          await page.evaluate(() => document.activeElement?.getAttribute("href") ?? null),
+        );
+      }
+      expect(reached).toEqual(expected);
+      // Après le lien GitHub, plus rien dans la page.
+      await page.keyboard.press("Tab");
+      const after = await page.evaluate(() => {
+        const active = document.activeElement;
+        if (active === null || active === document.body) return null;
+        return `${active.tagName} ${active.getAttribute("href") ?? ""}`.trim();
+      });
+      expect(after).toBeNull();
+    });
+  }
+
+  test("CA-7 · ordre du HTML : affiche, puis looks 01 à 03, puis les post-its", async ({
+    page,
+  }) => {
+    await page.goto("");
+    const order = await page.evaluate(() => {
+      const banner = document.querySelector("header");
+      const articles = [...document.querySelectorAll("main article")];
+      const footer = document.querySelector("footer");
+      if (banner === null || footer === null) return null;
+      const sequence = [banner, ...articles, footer];
+      const follows = sequence
+        .slice(1)
+        .map(
+          (node, index) =>
+            ((sequence[index]?.compareDocumentPosition(node) ?? 0) &
+              Node.DOCUMENT_POSITION_FOLLOWING) !==
+            0,
+        );
+      return {
+        titles: articles.map((article) => article.querySelector("h3")?.textContent ?? ""),
+        follows,
+        // Rien de focalisable dans l'affiche : elle ouvre la lecture, pas la tabulation.
+        focusableInBanner: banner.querySelectorAll("a, button, input, [tabindex]").length,
+        // Aucun tabindex positif ni order CSS qui contredirait le HTML.
+        positiveTabindex: [...document.querySelectorAll("[tabindex]")].filter(
+          (node) => Number(node.getAttribute("tabindex")) > 0,
+        ).length,
+        reordered: [...document.querySelectorAll("body *")].filter(
+          (node) => getComputedStyle(node).order !== "0",
+        ).length,
+      };
+    });
+    expect(order).toEqual({
+      titles: LOOKS.map((look) => look.name),
+      follows: [true, true, true, true],
+      focusableInBanner: 0,
+      positiveTabindex: 0,
+      reordered: 0,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tester, tour 1 de la retouche « tout sur un écran » : ce que les tests du builder ne
+// tranchaient pas encore (titre qui déborde de l'affiche, nom coupé, texte recouvert ou rogné
+// pour tenir dans 720 px, couleur et contenu de chaque post-it).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Lignes occupées par le texte d'un élément (Range.getClientRects, une boîte par fragment) et
+ * boîte englobante de ce texte. Autonome (sérialisée par Playwright).
+ */
+function textLines(element: Element) {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+  // Deux fragments sont sur la même ligne si leurs boîtes se recouvrent verticalement de plus
+  // de la moitié de la plus petite (les glyphes de corps différents n'ont pas le même haut).
+  const lines: { top: number; bottom: number }[] = [];
+  for (const rect of rects) {
+    const line = lines.find(
+      (candidate) =>
+        Math.min(candidate.bottom, rect.bottom) - Math.max(candidate.top, rect.top) >
+        Math.min(candidate.bottom - candidate.top, rect.height) / 2,
+    );
+    if (line === undefined) lines.push({ top: rect.top, bottom: rect.bottom });
+  }
+  const box = range.getBoundingClientRect();
+  return { lines: lines.length, left: box.left, right: box.right };
+}
+
+test.describe("lookbook · tester tour 1 (tout sur un écran)", () => {
+  // Tableau « Disposition », ligne « ≥ 1000 px » : « bandeau centré, titre sur une ligne ». Le
+  // test du builder ne mesure que la hauteur du h1 à 1280 px : un titre forcé sur une ligne
+  // (white-space: nowrap) qui sortirait du bandeau, sur les post-its, passerait. On vérifie la
+  // ligne unique ET que le texte reste dans l'affiche, du seuil de 1000 px jusqu'au plein écran.
+  for (const width of [1000, 1100, 1280, 1440]) {
+    test(`CA-2 · à ${width} px, le titre tient sur une ligne et reste dans l'affiche`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height: 720 });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      const title = page.getByRole("heading", { level: 1 });
+      const text = await title.evaluate(textLines);
+      expect(text.lines, "titre sur une ligne").toBe(1);
+      const overflow = await title.evaluate((h1) => h1.scrollWidth - h1.clientWidth);
+      expect(overflow, "texte du titre plus large que sa boîte").toBeLessThanOrEqual(0);
+      const poster = await boxOf(page.getByRole("banner"), "affiche");
+      expect(text.left, "titre sorti de l'affiche à gauche").toBeGreaterThanOrEqual(poster.x);
+      expect(text.right, "titre sorti de l'affiche à droite").toBeLessThanOrEqual(right(poster));
+    });
+  }
+
+  // Tableau « Disposition », ligne « ≥ 1000 px » : elle n'a pas de borne haute. L'ancien test
+  // CA-2 vérifiait 1440 px ; les tests du builder s'arrêtent à 1280. Grands écrans courants.
+  for (const { width, height } of [
+    { width: 1440, height: 900 },
+    { width: 1920, height: 1080 },
+  ]) {
+    test(`CA-2 · à ${width} px, toujours la disposition « ≥ 1000 px », sans défilement`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      expectWide(await layoutOf(page), width);
+      await noHorizontalScroll(page);
+      // Plus grand que 1280×720 dans les deux sens : ce qui tient à 1280×720 doit tenir ici.
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollHeight - window.innerHeight,
+      );
+      expect(overflow, "défilement vertical").toBeLessThanOrEqual(0);
+    });
+  }
+
+  // Design : « numéro et nom du look sur la même ligne à 1280 px ». Le test du builder vérifie
+  // que le nom commence à droite du numéro, mais un nom lui-même replié (« Le SAV de » / « ta
+  // vie ») passerait : la moitié du nom ne serait plus sur la ligne du numéro.
+  test("Design · à 1280 px, numéro et nom de chaque look tiennent ensemble sur une seule ligne", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    for (const look of LOOKS) {
+      const card = page.getByRole("article", { name: look.name, exact: true });
+      const number = await card
+        .getByText(`Look ${look.number}`, { exact: true })
+        .evaluate(textLines);
+      const name = await card.getByRole("heading", { name: look.name }).evaluate(textLines);
+      expect(number.lines, `numéro ${look.number} sur une ligne`).toBe(1);
+      expect(name.lines, `« ${look.name} » sur une ligne`).toBe(1);
+    }
+  });
+
+  // CA-6 + section « Disposition » : « toute la page tient » à 1280×720. scrollHeight ne voit
+  // pas un texte rogné par un ancêtre (overflow), poussé hors de l'écran par un positionnement,
+  // ou recouvert par un autre document punaisé. Chaque texte lisible de la page est vérifié :
+  // dans l'écran, entier, et au premier plan en son centre et à ses deux bouts. Les aperçus
+  // (role="img") sont exclus : la spec autorise à réduire leur hauteur.
+  test("CA-6 · à 1280×720, chaque texte de la page est dans l'écran, ni rogné ni recouvert", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    await page.mouse.move(0, 0);
+    const report = await page.locator("body").evaluate((body) => {
+      const problems: string[] = [];
+      let checked = 0;
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        const text = (node.textContent ?? "").trim();
+        if (parent === null || text === "") continue;
+        if (parent.closest('[role="img"]') !== null) continue;
+        // Texte réservé aux lecteurs d'écran (boîte de 1 px) : rien à afficher.
+        let hidden = false;
+        for (let up: Element | null = parent; up !== null; up = up.parentElement) {
+          const box = up.getBoundingClientRect();
+          if (box.width <= 1 && box.height <= 1) hidden = true;
+        }
+        if (hidden) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width === 0 || rect.height === 0) continue;
+          checked += 1;
+          const what = `« ${text.slice(0, 30)} »`;
+          if (
+            rect.left < 0 ||
+            rect.right > innerWidth ||
+            rect.top < 0 ||
+            rect.bottom > innerHeight
+          ) {
+            problems.push(`${what} hors de l'écran`);
+            continue;
+          }
+          for (let up: Element | null = parent; up !== null; up = up.parentElement) {
+            const style = getComputedStyle(up);
+            const box = up.getBoundingClientRect();
+            const clipsX = style.overflowX !== "visible";
+            const clipsY = style.overflowY !== "visible";
+            if (clipsX && (rect.left < box.left - 1 || rect.right > box.right + 1)) {
+              problems.push(`${what} rogné horizontalement par ${up.tagName}`);
+            }
+            if (clipsY && (rect.top < box.top - 1 || rect.bottom > box.bottom + 1)) {
+              problems.push(`${what} rogné verticalement par ${up.tagName}`);
+            }
+          }
+          const middle = rect.top + rect.height / 2;
+          for (const x of [rect.left + 2, rect.left + rect.width / 2, rect.right - 2]) {
+            const hit = document.elementFromPoint(x, middle);
+            if (hit !== null && !parent.contains(hit) && !hit.contains(parent)) {
+              problems.push(
+                `${what} recouvert par ${hit.tagName} en (${Math.round(x)}, ${Math.round(middle)})`,
+              );
+            }
+          }
+        }
+      }
+      return { checked, problems: [...new Set(problems)] };
+    });
+    // Affiche (5 textes), 3 cartes (numéro, nom, accroche, 6 lignes de fiche, lien), post-its.
+    expect(report.checked).toBeGreaterThan(40);
+    expect(report.problems).toEqual([]);
+  });
+
+  // Contenu : « bleu « Aucun cookie, aucun compte, aucun serveur. » avec le lien vers le repo
+  // GitHub » ; Disposition : jaune à gauche, bleu à droite à partir de 1000 px. Le test du tour 3
+  // acceptait le lien sur l'un ou l'autre post-it.
+  for (const { width, height } of [
+    { width: 1280, height: 720 },
+    { width: 800, height: 900 },
+    { width: 360, height: 780 },
+  ]) {
+    test(`Contenu · à ${width} px, le lien GitHub est sur le post-it bleu « Aucun cookie », pas sur le jaune`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height });
+      await page.goto("");
+      const yellow = await postItOf(page, /Prochaine collection/u);
+      const blue = await postItOf(page, /Aucun cookie/u);
+      expect(yellow?.hasRepoLink).toBe(false);
+      expect(blue?.hasRepoLink).toBe(true);
+      expect(blue?.background).toBe("rgb(167, 224, 242)");
+      expect(isYellow(yellow?.background ?? ""), yellow?.background).toBe(true);
+    });
+  }
+
+  // Design : « Alfa Slab One (titres façon affiche en caractères bois, numéros de look) » et
+  // « numéros de look #C2410C (uniquement en gros, ≥ 24 px) ». Le test du builder (seuil 24 px)
+  // tourne à 1280 et 360 px ; la disposition intermédiaire (800 px) a ses propres règles CSS.
+  for (const { width, height } of [
+    { width: 1280, height: 720 },
+    { width: 1000, height: 720 },
+    { width: 800, height: 900 },
+    { width: 360, height: 780 },
+  ]) {
+    test(`Design · à ${width} px, les numéros de look sont en Alfa Slab One orange, ≥ 24 px`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      for (const look of LOOKS) {
+        const number = page
+          .getByRole("article", { name: look.name, exact: true })
+          .getByText(`Look ${look.number}`, { exact: true });
+        const style = await number.evaluate((element) => {
+          const computed = getComputedStyle(element);
+          return {
+            family: computed.fontFamily.split(",")[0]?.replaceAll('"', "").trim(),
+            size: parseFloat(computed.fontSize),
+            color: computed.color,
+          };
+        });
+        expect(style.family, `numéro ${look.number}`).toBe("Alfa Slab One");
+        expect(style.size, `numéro ${look.number}`).toBeGreaterThanOrEqual(24);
+        expect(style.color, `numéro ${look.number}`).toBe("rgb(194, 65, 12)");
+      }
+    });
+  }
+
+  // CA-4 aux bornes de la disposition « ≥ 1000 px » : à 1000 px, l'affiche est la plus étroite,
+  // les post-its les plus serrés et le titre au plus juste. Axe passe déjà à 1280 et 360 px
+  // (collection.spec.ts) et à 800 px (bloc « tester »).
+  test("CA-4 · axe : zéro violation à 1000×720 (bascule vers « tout sur un écran »)", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1000, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+      .analyze();
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  // CLAUDE.md : focus visible ; .board rogne son débordement horizontal (overflow-x: clip) et
+  // la page tient tout juste dans 720 px : le contour de focus (3 px + 3 px de décalage) ne doit
+  // être rogné ni par ce conteneur ni par le bas de l'écran, à 1280×720 comme à 1000×720.
+  for (const width of [1000, 1280]) {
+    test(`CA-7 · à ${width}×720, le contour de focus de chaque lien est entier`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      await page.setViewportSize({ width, height: 720 });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+      const problems: string[] = [];
+      for (let press = 0; press < 4; press += 1) {
+        await page.keyboard.press("Tab");
+        const clipped = await page.evaluate(() => {
+          const active = document.activeElement;
+          if (!(active instanceof HTMLElement)) return ["aucun élément focalisé"];
+          const style = getComputedStyle(active);
+          const reach =
+            parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
+          const box = active.getBoundingClientRect();
+          const ring = {
+            left: box.left - reach,
+            right: box.right + reach,
+            top: box.top - reach,
+            bottom: box.bottom + reach,
+          };
+          const name = active.getAttribute("aria-label") ?? active.textContent ?? "";
+          const found: string[] = [];
+          if (
+            ring.top < 0 ||
+            ring.bottom > innerHeight ||
+            ring.left < 0 ||
+            ring.right > innerWidth
+          ) {
+            found.push(`${name} : contour hors de l'écran`);
+          }
+          for (let up = active.parentElement; up !== null; up = up.parentElement) {
+            const upStyle = getComputedStyle(up);
+            const upBox = up.getBoundingClientRect();
+            if (
+              upStyle.overflowX !== "visible" &&
+              (ring.left < upBox.left || ring.right > upBox.right)
+            ) {
+              found.push(`${name} : contour rogné par ${up.tagName}`);
+            }
+            if (
+              upStyle.overflowY !== "visible" &&
+              (ring.top < upBox.top || ring.bottom > upBox.bottom)
+            ) {
+              found.push(`${name} : contour rogné par ${up.tagName}`);
+            }
+          }
+          return found;
+        });
+        problems.push(...clipped);
+      }
+      expect(problems).toEqual([]);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Décisions prises : « le titre de l'affiche ne doit jamais sortir de l'affiche, y compris avec
+// une taille de police du navigateur agrandie (réglage "Très grande") ».
+// ---------------------------------------------------------------------------------------------
+
+test.describe("lookbook · police du navigateur agrandie", () => {
+  // « Très grande » dans Chrome = police standard à 24 px. On la règle comme le ferait
+  // l'utilisateur, par CDP (Page.setFontSizes) avant le chargement : c'est la taille « medium »
+  // du navigateur qui change, donc le rem, sans toucher au HTML ni à la CSP (page.addStyleTag
+  // injecterait un <style> que la CSP bloque). Le test vérifie que la racine passe bien à
+  // 24 px, sinon il ne prouverait rien. Chromium seulement (CDP).
+  const cases = [
+    { fontSize: 16, width: 1000 },
+    { fontSize: 16, width: 1280 },
+    { fontSize: 24, width: 360 },
+    { fontSize: 24, width: 800 },
+    { fontSize: 24, width: 1000 },
+    { fontSize: 24, width: 1280 },
+  ] as const;
+  for (const { fontSize, width } of cases) {
+    test(`titre dans l'affiche à ${width} px, police racine ${fontSize} px`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      if (fontSize !== 16) {
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Page.setFontSizes", { fontSizes: { standard: fontSize } });
+      }
+      await page.setViewportSize({ width, height: 720 });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+
+      const title = page.getByRole("heading", { level: 1 });
+      const metrics = await title.evaluate((h1) => {
+        const poster = h1.closest("header");
+        if (poster === null) throw new Error("affiche introuvable");
+        const range = document.createRange();
+        range.selectNodeContents(h1);
+        const text = range.getBoundingClientRect();
+        const posterStyle = getComputedStyle(poster);
+        return {
+          rootFontSize: parseFloat(getComputedStyle(document.documentElement).fontSize),
+          fontSize: parseFloat(getComputedStyle(h1).fontSize),
+          titleHeight: h1.clientHeight,
+          titleScrollWidth: h1.scrollWidth,
+          titleClientWidth: h1.clientWidth,
+          posterScrollWidth: poster.scrollWidth,
+          posterClientWidth: poster.clientWidth,
+          // Largeur de contenu de l'affiche, hors marges intérieures.
+          posterContentWidth:
+            poster.clientWidth -
+            parseFloat(posterStyle.paddingLeft) -
+            parseFloat(posterStyle.paddingRight),
+          // Boîte du texte (rotation de l'affiche comprise : moins d'un pixel à -0,8 deg).
+          text: { left: text.left, right: text.right, width: text.width },
+        };
+      });
+      expect(metrics.rootFontSize, "police racine émulée").toBe(fontSize);
+      expect(metrics.titleScrollWidth, "titre qui déborde de sa boîte").toBeLessThanOrEqual(
+        metrics.titleClientWidth,
+      );
+      expect(metrics.text.width, "titre plus large que l'affiche").toBeLessThanOrEqual(
+        metrics.posterContentWidth,
+      );
+      expect(metrics.posterScrollWidth, "affiche qui déborde").toBeLessThanOrEqual(
+        metrics.posterClientWidth,
+      );
+
+      if (width >= 1000) {
+        // Bandeau : titre sur une ligne, entre les deux post-its, sans passer dessous.
+        expect(metrics.titleHeight, "titre sur une ligne").toBeLessThan(1.5 * metrics.fontSize);
+        const yellow = await postItOf(page, /Prochaine collection/);
+        const blue = await postItOf(page, /Aucun cookie/);
+        if (yellow === null || blue === null) throw new Error("post-it sans fond");
+        expect(metrics.text.left, "titre sous le post-it jaune").toBeGreaterThanOrEqual(
+          right(yellow.box),
+        );
+        expect(metrics.text.right, "titre sous le post-it bleu").toBeLessThanOrEqual(blue.box.x);
+      }
+
+      // CA-6 à la police par défaut : le titre recalé ne fait pas défiler la page à 1280×720.
+      if (fontSize === 16 && width === 1280) {
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollHeight - window.innerHeight,
+        );
+        expect(overflow, "défilement vertical à 1280×720").toBeLessThanOrEqual(0);
+      }
+    });
+  }
 });

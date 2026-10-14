@@ -45,19 +45,19 @@ const ROWS: readonly {
 
   .tape {
     position: absolute;
-    top: -12px;
-    right: 24px;
-    width: 90px;
-    height: 26px;
+    top: -8px;
+    right: 22px;
+    width: 80px;
+    height: 22px;
     background: rgb(255 250 220 / 0.65);
     transform: rotate(-4deg);
   }
 
   /* Bandes Caroll : les trous laissent voir le liège. */
   .feed {
-    flex: 0 0 22px;
+    flex: 0 0 20px;
     border-right: 1px dashed #bdb7aa;
-    background: radial-gradient(circle, var(--cork) 4px, transparent 4.6px) center 10px / 22px 20px
+    background: radial-gradient(circle, var(--cork) 4px, transparent 4.6px) center 10px / 20px 20px
       repeat-y;
   }
 
@@ -71,7 +71,7 @@ const ROWS: readonly {
     min-width: 0;
     color: #1c1b18;
     font-family: "Courier Prime", monospace;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
   }
 
   p {
@@ -79,9 +79,9 @@ const ROWS: readonly {
   }
 
   .brand {
-    padding: 0.75rem 0.75rem 0.5rem;
+    padding: 0.625rem 0.625rem 0.375rem;
     font-family: "Alfa Slab One", serif;
-    font-size: 1.125rem;
+    font-size: 0.9375rem;
     text-transform: uppercase;
   }
 
@@ -90,7 +90,7 @@ const ROWS: readonly {
     flex-wrap: wrap;
     justify-content: space-between;
     gap: 0 0.5rem;
-    padding: 0.4375rem 0.75rem;
+    padding: 0.3125rem 0.625rem;
   }
 
   .row:nth-child(even) {
@@ -98,7 +98,7 @@ const ROWS: readonly {
   }
 
   .row:last-child {
-    padding-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
   }
 
   /* Si la ligne se replie, le statut reste calé à droite comme sur le listing. */

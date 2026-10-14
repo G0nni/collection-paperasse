@@ -97,7 +97,7 @@ describe("buildCatalog", () => {
 
 describe("textes de la page", () => {
   it("contient l'en-tête et le pied de page demandés par la spec", () => {
-    expect(PAGE_TEXT.posterTitle.join(" ")).toBe("Collection Paperasse");
+    expect(PAGE_TEXT.posterTitle).toBe("Collection Paperasse");
     expect(PAGE_TEXT.season).toBe("Défilé Automne-Hiver 2026.");
     expect(PAGE_TEXT.rule).toBe("Trois documents officiels. Aucune valeur. Zéro inscription.");
     expect(PAGE_TEXT.privacy.join(" ")).toBe("Aucun cookie, aucun compte, aucun serveur.");

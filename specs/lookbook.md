@@ -65,14 +65,15 @@ l'affiche « Avis à la population » et les trois documents de la collection.
 
 - Liège `#C38F55` avec texture en points (deux `radial-gradient` superposés), affiche jaune
   `#FFE45C`, encre `#1B1B1B`, rouge tampon `#B3261E`, étiquettes kraft `#EAD3A2`, numéros de look
-  `#C2410C` (uniquement en très grand, ≥ 34 px), post-it bleu `#A7E0F2`.
+  `#C2410C` (uniquement en gros, ≥ 24 px : contraste 3,54:1 sur le kraft, conforme au seuil 3:1), post-it bleu `#A7E0F2`.
 - Polices (fontsource) : Alfa Slab One (titres façon affiche en caractères bois, numéros de
   look) ; JetBrains Mono (texte, fiches). Les aperçus de chaque look reprennent les polices de
   ce look (Doto, Young Serif, Courier Prime), chargées uniquement sur cette page.
 - Modules signature : affiche « Avis à la population » légèrement inclinée avec deux punaises et
   un tampon ENTRÉE LIBRE ; chaque look = un aperçu de son document (ticket, acte, listing)
   punaisé ou scotché de travers, et en dessous une étiquette kraft trouée avec la fiche défilé
-  (numéro et nom du look sur la même ligne) ; post-its de part et d'autre de l'affiche.
+  (numéro et nom du look sur la même ligne à 1280 px, largeur de la maquette ; repli autorisé en
+  dessous, comme sur la maquette) ; post-its de part et d'autre de l'affiche.
 - Les inclinaisons s'appliquent aux aperçus, à l'affiche et aux post-its (comme sur la maquette).
   Les étiquettes kraft (fiches) et les boutons restent droits, pour la lisibilité. Les post-its
   sont en Courier Prime, comme sur la maquette.
@@ -90,3 +91,8 @@ l'affiche « Avis à la population » et les trois documents de la collection.
   14/10/2026, maquette validée le même jour.
 - Version « tout sur un écran » (bandeau compact, post-its sur les côtés puis dessous, fiches
   complètes), validée par Gonni le 14/10/2026.
+- Numéros de look à 26 px (seuil ≥ 24 px au lieu de 34) et numéro + nom sur la même ligne à
+  1280 px seulement (le Look 03 ne tient qu'à partir de 1220 px), pour coller à la maquette
+  validée. Décidé par l'orchestrateur pendant la retouche « tout sur un écran », à confirmer.
+- Le titre de l'affiche ne doit jamais sortir de l'affiche, y compris avec une taille de police
+  du navigateur agrandie (réglage « Très grande »).

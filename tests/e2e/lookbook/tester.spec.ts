@@ -1224,32 +1224,27 @@ test.describe("lookbook · disposition", () => {
     });
   }
 
-  // Design (commit 0c414b6) : « numéro et nom du look sur la même ligne à partir de 1000 px,
-  // repli autorisé en dessous ». Spec : même ligne à 1280 px (commit « build tour 1 bis ») : à 1000 px, numéro 26 px et nom 21 px (maquette) ne
-  // tiennent pas (« LOOK 03 Le SAV de ta vie » : 314 px pour 245 disponibles) ; les trois
-  // tiennent à partir de 1220 px. 1000 px sera ajouté ici quand la spec ou les tailles seront
-  // tranchées.
-  for (const width of [1280]) {
-    test(`Design · à ${width} px, numéro et nom de chaque look sur la même ligne`, async ({
-      page,
-    }, testInfo) => {
-      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-      await page.setViewportSize({ width, height: 720 });
-      await page.goto("");
-      await page.evaluate(() => document.fonts.ready);
-      for (const look of LOOKS) {
-        const card = page.getByRole("article", { name: look.name, exact: true });
-        const number = await boxOf(
-          card.getByText(`Look ${look.number}`, { exact: true }),
-          `numéro ${look.number}`,
-        );
-        const name = await boxOf(card.getByRole("heading", { name: look.name }), look.name);
-        expect(name.x, `${look.name} à droite du numéro`).toBeGreaterThanOrEqual(right(number));
-        expect(name.y, look.name).toBeLessThan(bottom(number));
-        expect(bottom(name), look.name).toBeGreaterThan(number.y);
-      }
-    });
-  }
+  // Design : « numéro et nom du look sur la même ligne à 1280 px, largeur de la maquette ;
+  // repli autorisé en dessous ».
+  test("Design · à 1280 px, numéro et nom de chaque look sur la même ligne", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("");
+    await page.evaluate(() => document.fonts.ready);
+    for (const look of LOOKS) {
+      const card = page.getByRole("article", { name: look.name, exact: true });
+      const number = await boxOf(
+        card.getByText(`Look ${look.number}`, { exact: true }),
+        `numéro ${look.number}`,
+      );
+      const name = await boxOf(card.getByRole("heading", { name: look.name }), look.name);
+      expect(name.x, `${look.name} à droite du numéro`).toBeGreaterThanOrEqual(right(number));
+      expect(name.y, look.name).toBeLessThan(bottom(number));
+      expect(bottom(name), look.name).toBeGreaterThan(number.y);
+    }
+  });
 
   // CA-6 : « À 1280×720, aucun défilement vertical : scrollHeight ≤ innerHeight, polices
   // chargées. » Et la section « Disposition » : fiches complètes, affiche d'environ 160 px,
@@ -1733,6 +1728,97 @@ test.describe("lookbook · tester tour 1 (tout sur un écran)", () => {
         problems.push(...clipped);
       }
       expect(problems).toEqual([]);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Décisions prises : « le titre de l'affiche ne doit jamais sortir de l'affiche, y compris avec
+// une taille de police du navigateur agrandie (réglage "Très grande") ».
+// ---------------------------------------------------------------------------------------------
+
+test.describe("lookbook · police du navigateur agrandie", () => {
+  // « Très grande » dans Chrome = police standard à 24 px. On la règle comme le ferait
+  // l'utilisateur, par CDP (Page.setFontSizes) avant le chargement : c'est la taille « medium »
+  // du navigateur qui change, donc le rem, sans toucher au HTML ni à la CSP (page.addStyleTag
+  // injecterait un <style> que la CSP bloque). Le test vérifie que la racine passe bien à
+  // 24 px, sinon il ne prouverait rien. Chromium seulement (CDP).
+  const cases = [
+    { fontSize: 16, width: 1000 },
+    { fontSize: 16, width: 1280 },
+    { fontSize: 24, width: 360 },
+    { fontSize: 24, width: 800 },
+    { fontSize: 24, width: 1000 },
+    { fontSize: 24, width: 1280 },
+  ] as const;
+  for (const { fontSize, width } of cases) {
+    test(`titre dans l'affiche à ${width} px, police racine ${fontSize} px`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+      if (fontSize !== 16) {
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Page.setFontSizes", { fontSizes: { standard: fontSize } });
+      }
+      await page.setViewportSize({ width, height: 720 });
+      await page.goto("");
+      await page.evaluate(() => document.fonts.ready);
+
+      const title = page.getByRole("heading", { level: 1 });
+      const metrics = await title.evaluate((h1) => {
+        const poster = h1.closest("header");
+        if (poster === null) throw new Error("affiche introuvable");
+        const range = document.createRange();
+        range.selectNodeContents(h1);
+        const text = range.getBoundingClientRect();
+        const posterStyle = getComputedStyle(poster);
+        return {
+          rootFontSize: parseFloat(getComputedStyle(document.documentElement).fontSize),
+          fontSize: parseFloat(getComputedStyle(h1).fontSize),
+          titleHeight: h1.clientHeight,
+          titleScrollWidth: h1.scrollWidth,
+          titleClientWidth: h1.clientWidth,
+          posterScrollWidth: poster.scrollWidth,
+          posterClientWidth: poster.clientWidth,
+          // Largeur de contenu de l'affiche, hors marges intérieures.
+          posterContentWidth:
+            poster.clientWidth -
+            parseFloat(posterStyle.paddingLeft) -
+            parseFloat(posterStyle.paddingRight),
+          // Boîte du texte (rotation de l'affiche comprise : moins d'un pixel à -0,8 deg).
+          text: { left: text.left, right: text.right, width: text.width },
+        };
+      });
+      expect(metrics.rootFontSize, "police racine émulée").toBe(fontSize);
+      expect(metrics.titleScrollWidth, "titre qui déborde de sa boîte").toBeLessThanOrEqual(
+        metrics.titleClientWidth,
+      );
+      expect(metrics.text.width, "titre plus large que l'affiche").toBeLessThanOrEqual(
+        metrics.posterContentWidth,
+      );
+      expect(metrics.posterScrollWidth, "affiche qui déborde").toBeLessThanOrEqual(
+        metrics.posterClientWidth,
+      );
+
+      if (width >= 1000) {
+        // Bandeau : titre sur une ligne, entre les deux post-its, sans passer dessous.
+        expect(metrics.titleHeight, "titre sur une ligne").toBeLessThan(1.5 * metrics.fontSize);
+        const yellow = await postItOf(page, /Prochaine collection/);
+        const blue = await postItOf(page, /Aucun cookie/);
+        if (yellow === null || blue === null) throw new Error("post-it sans fond");
+        expect(metrics.text.left, "titre sous le post-it jaune").toBeGreaterThanOrEqual(
+          right(yellow.box),
+        );
+        expect(metrics.text.right, "titre sous le post-it bleu").toBeLessThanOrEqual(blue.box.x);
+      }
+
+      // CA-6 à la police par défaut : le titre recalé ne fait pas défiler la page à 1280×720.
+      if (fontSize === 16 && width === 1280) {
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollHeight - window.innerHeight,
+        );
+        expect(overflow, "défilement vertical à 1280×720").toBeLessThanOrEqual(0);
+      }
     });
   }
 });

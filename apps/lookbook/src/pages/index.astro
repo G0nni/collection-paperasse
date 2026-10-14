@@ -38,7 +38,7 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
         <span class="pin pin-blue" aria-hidden="true"></span>
         <p class="kicker">{PAGE_TEXT.posterKicker}</p>
         <span class="rule" aria-hidden="true"></span>
-        <h1>{PAGE_TEXT.posterTitle.join(" ")}</h1>
+        <h1>{PAGE_TEXT.posterTitle}</h1>
         <p class="season">{`${PAGE_TEXT.season} ${PAGE_TEXT.rule}`}</p>
         <span class="stamp" aria-hidden="true">
           {PAGE_TEXT.stamp}
@@ -199,6 +199,9 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     background: var(--poster);
     text-align: center;
     transform: rotate(-0.8deg);
+    /* Le titre se cale sur la largeur de l'affiche (unités cqi), pas sur celle de la fenêtre :
+       il reste dedans même avec une police du navigateur agrandie. */
+    container-type: inline-size;
     box-shadow:
       0 2px 0 rgb(0 0 0 / 0.08),
       0 18px 32px rgb(var(--shadow) / 0.35);
@@ -243,10 +246,13 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
     border-bottom: 1px solid var(--ink);
   }
 
+  /* Sous 1000 px le titre peut passer sur deux lignes ; 18cqi borne le mot le plus long
+     (« Collection », environ 5,3 fois le corps) à la largeur de l'affiche quand la police du
+     navigateur est agrandie. Sans effet à la police par défaut. */
   h1 {
     margin: 0;
     font-family: "Alfa Slab One", serif;
-    font-size: clamp(2.125rem, 4.4vw, 3.5rem);
+    font-size: min(clamp(2.125rem, 4.4vw, 3.5rem), 18cqi);
     font-weight: 400;
     line-height: 1;
     letter-spacing: -0.01em;
@@ -299,11 +305,12 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
   }
 
   /* Seuls les aperçus sont de travers : la fiche et le lien restent droits pour la lecture.
-     Hauteur commune pour que les étiquettes s'alignent ; c'est elle qu'on réduit en premier
-     quand la place manque, jamais les fiches. */
+     Hauteur minimale = hauteur réelle du plus grand aperçu, le ticket (158 px à la police par
+     défaut, contre 152 pour l'acte et le listing) : les trois étiquettes démarrent à la même
+     hauteur quand les looks sont côte à côte. */
   .preview {
     display: grid;
-    min-height: 9.5rem;
+    min-height: 9.875rem;
     transform: rotate(var(--tilt, 0deg));
   }
 
@@ -511,9 +518,13 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
      sur une ligne, et les trois looks tiennent sous elle, sans défilement à 1280×720 (CA-6). */
   @media (min-width: 1000px) {
     .board {
-      grid-template-columns: 190px minmax(0, 1fr) 190px;
+      /* Pistes partagées avec .notes : mêmes colonnes, même column-gap, donc post-its alignés
+         sur les colonnes de part et d'autre de l'affiche. */
+      --board-columns: 190px minmax(0, 1fr) 190px;
+
+      grid-template-columns: var(--board-columns);
       grid-template-areas:
-        "left poster right"
+        ". poster ."
         "looks looks looks";
       row-gap: 26px;
       align-items: center;
@@ -525,7 +536,11 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
       max-width: 760px;
     }
 
+    /* Une seule ligne, donc une taille bornée par la largeur de l'affiche : 9cqi laisse une
+       marge à « Collection Paperasse » (environ 10,8 fois le corps en Alfa Slab One), que la
+       police racine soit à 16 ou à 24 px. */
     h1 {
+      font-size: min(3.5rem, 9cqi);
       white-space: nowrap;
     }
 
@@ -533,13 +548,14 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
-    /* Le pied de page occupe toute la première ligne et reprend les colonnes de la grille
-       (subgrid) : jaune à gauche de l'affiche, bleu à droite. Sa colonne du milieu reste vide ;
-       l'affiche, positionnée, est peinte au-dessus. */
+    /* Le pied de page occupe toute la première ligne et reprend les pistes de .board : jaune à
+       gauche de l'affiche, bleu à droite. Sa colonne du milieu reste vide ; l'affiche,
+       positionnée, est peinte au-dessus. */
     .notes {
       grid-row: 1;
       grid-column: 1 / -1;
-      grid-template-columns: subgrid;
+      grid-template-columns: var(--board-columns);
+      column-gap: var(--board-gap-x);
       align-items: center;
     }
 

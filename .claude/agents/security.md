@@ -37,7 +37,10 @@ localStorage**. Tu ne modifies aucun fichier du repo. Tes scripts d'attaque temp
    Playwright dans `$TMPDIR` qui ouvre des URL forgées et vérifie : pas de `dialog`, pas d'erreur
    non gérée dans la console, pas de requête réseau hors origine, rendu toujours lisible.
 5. **CSP** : vérifie la meta CSP de chaque page construite (pas de `unsafe-inline`,
-   pas de `unsafe-eval`, pas de domaine tiers).
+   pas de `unsafe-eval`, pas de domaine tiers). Les 5 hashes des directives client d'Astro sont
+   une exception documentée dans `CLAUDE.md` : ne les signale pas à nouveau.
+   Ne lance pas de build pendant qu'un autre agent fait tourner les e2e : `pnpm build*` efface
+   `site/`. Construis dans un dossier à toi (`--outDir`) si besoin.
 6. **Dépendances** : `pnpm audit --prod` et liste des dépendances de production de chaque app.
 
 ## Format du rapport

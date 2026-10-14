@@ -82,6 +82,10 @@ Le modèle de menace est court mais sérieux : **quelqu'un forge un lien et l'en
 - CSP activée via `security.csp` d'Astro (meta tag avec hashes). Conséquence : **pas d'attribut
   `style="…"` dans le HTML** ; les valeurs dynamiques passent par
   `element.style.setProperty('--var', …)` ou par des classes.
+- Exception connue : Astro 7 ajoute toujours à `script-src` les hashes de ses 5 directives client
+  (`idle`, `load`, `media`, `only`, `visible`), sans option pour les retirer. Ils sont tolérés ;
+  les tests les acceptent via une liste blanche calculée depuis `astro/runtime/client/*.prebuilt.js`,
+  tout autre hash fait échouer les tests.
 - Taille max du hash/query décodé : 4 Ko. Au-delà, on refuse proprement.
 - localStorage : lecture dans un `try/catch`, données validées comme une URL, versionnées
   (`{ v: 1, … }`), avec migration ou remise à zéro si la version est inconnue.

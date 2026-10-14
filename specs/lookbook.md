@@ -59,4 +59,4 @@ l'affiche « Avis à la population » et les trois documents de la collection.
 
 - Pas de nom de domaine perso pour la v1 : `g0nni.github.io/collection-paperasse/`.
 - Direction « tableau d'affichage de mairie » plutôt que lookbook blanc, demandée par Gonni le
-  14/10/2026 (maquette à valider).
+  14/10/2026, maquette validée le même jour.

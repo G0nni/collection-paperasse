@@ -9,4 +9,6 @@ export default defineConfig({
   trailingSlash: "always",
   build: { inlineStylesheets: "never" },
   security: { csp: { directives: CSP_DIRECTIVES } },
+  // Pas de police inlinée en data: (font-src 'self' la refuserait) : chaque fichier reste un asset.
+  vite: { build: { assetsInlineLimit: 0 } },
 });

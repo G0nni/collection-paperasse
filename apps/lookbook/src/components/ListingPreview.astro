@@ -1,0 +1,111 @@
+---
+// Aperçu du Look 03 : le papier listing du SAV de ta vie, avec ses bandes à trous d'entraînement.
+import "@fontsource/courier-prime/400.css";
+import "@fontsource/courier-prime/700.css";
+
+type Props = { label: string };
+
+const { label } = Astro.props;
+---
+
+<div class="listing" role="img" aria-label={label}>
+  <span class="tape" aria-hidden="true"></span>
+  <span class="feed" aria-hidden="true"></span>
+  <div class="sheet">
+    <p class="brand">SAV de ta vie</p>
+    <p class="row">
+      <span>#4021 Frigo vide</span>
+      <strong class="critical">Critique</strong>
+    </p>
+    <p class="row">
+      <span>#4023 Rappeler mamie</span>
+      <span>Rouvert ×3</span>
+    </p>
+    <p class="row">
+      <span>#4026 214 onglets</span>
+      <span>Won't fix</span>
+    </p>
+    <p class="row">
+      <span>#4027 Tupperware</span>
+      <span>Diplomatique</span>
+    </p>
+  </div>
+  <span class="feed feed-right" aria-hidden="true"></span>
+</div>
+
+<style>
+  .listing {
+    position: relative;
+    display: flex;
+    background: #fcfbf5;
+    box-shadow: 0 16px 28px rgb(60 30 5 / 0.35);
+  }
+
+  .tape {
+    position: absolute;
+    top: -12px;
+    right: 24px;
+    width: 90px;
+    height: 26px;
+    background: rgb(255 250 220 / 0.65);
+    transform: rotate(-4deg);
+  }
+
+  /* Bandes Caroll : les trous laissent voir le liège. */
+  .feed {
+    flex: 0 0 22px;
+    border-right: 1px dashed #bdb7aa;
+    background: radial-gradient(circle, #c38f55 4px, transparent 4.6px) center 10px / 22px 20px
+      repeat-y;
+  }
+
+  .feed-right {
+    border-right: 0;
+    border-left: 1px dashed #bdb7aa;
+  }
+
+  .sheet {
+    flex: 1;
+    min-width: 0;
+    color: #1c1b18;
+    font-family: "Courier Prime", monospace;
+    font-size: 0.8125rem;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .brand {
+    padding: 0.75rem 0.75rem 0.5rem;
+    font-family: "Alfa Slab One", serif;
+    font-size: 1.125rem;
+    text-transform: uppercase;
+  }
+
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0 0.5rem;
+    padding: 0.4375rem 0.75rem;
+  }
+
+  .row:nth-child(even) {
+    background: #ddebd8;
+  }
+
+  .row:last-child {
+    padding-bottom: 0.75rem;
+  }
+
+  /* Si la ligne se replie, le statut reste calé à droite comme sur le listing. */
+  .row > :last-child {
+    margin-left: auto;
+  }
+
+  .critical {
+    color: #b42318;
+    text-transform: uppercase;
+  }
+</style>

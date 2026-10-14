@@ -1,52 +1,59 @@
-# Rapport reunion-metre · tour 2
+# Rapport reunion-metre · tour 3 (dernier tour)
 
-## Verdict
+## Ce qui bloque
 
-**Pas fini.** 1 bloquant (reviewer : le repli de copie flotte sur le ticket à 1093×614 et 960×600,
-masque le Total et ne se ferme pas), 0 critique ou élevé (security : 3 moyens). 2 tests e2e en
-échec. Tous les points du tour 1 sont fermés, dont le bloquant CA-11 (pire cas tenu à 1280×720).
+**Pas fini après 3 tours, à cause d'un seul défaut, dans le look livré :** sur l'écran Compteur,
+entre 640 et environ 1100 px de large, la liste des participants passe en deux colonnes et les
+champs « Qui » ne montrent que 3 à 10 lettres (« Che », « Kev », « Sta » à 960 px). Les noms ne sont
+lisibles nulle part ailleurs sur cet écran. C'est l'usage principal (Compteur en demi-écran à
+côté du chat) et la règle 5 de CLAUDE.md. 2 tests e2e en échec (960×1000, 1024×768).
 
-Décisions de l'orchestrateur à l'issue du tour (spec et CLAUDE.md, commit « rapport tour 2 ») :
+Correction connue et essayée par le reviewer : choisir le nombre de colonnes selon la largeur de
+la liste (container query, deux colonnes seulement au-delà de 50rem de liste). Résultat mesuré :
+une colonne et noms entiers de 640 à 1270 px, deux colonnes et CA-11 tenu à 1280×720.
 
-- Repli de copie dans un `<dialog>` modal (champ sélectionné, Fermer, Échap, focus rendu) ; statut
-  « Lien copié » à côté du bouton, jamais par-dessus le ticket.
-- Lien de version inconnue non réécrit ; forme propre de plus de 4 Ko refusée.
-- Notices : affichées jusqu'à Fermer ou changement d'écran, non réaffichées au rechargement.
-- CA-11 : une erreur de saisie en cours peut faire défiler la liste dans son cadre ; les messages
-  ne doivent jamais masquer une ligne du ticket sans moyen de la lire.
-- CL-3 : `e` sans `s` valide ignoré avec message.
-- `sanitizeText` (partagé) : U+FFFC refusé comme invisible, marques combinantes réduites à 4,
-  ordre retrait → NFC → trim ; conteneurs de texte libre qui coupent le débordement (CLAUDE.md).
+**Pourquoi pas corrigé dans les 3 tours** : le défaut n'est apparu qu'au tour 3, quand le tester
+a élargi les tailles d'écran (demi-écran 960 px). Ce n'est pas une boucle qui diverge : chaque
+tour a fermé tous les bloquants du tour précédent.
+
+Tout le reste est fermé : CA-1 à CA-11 et CL-1 à CL-11 verts, reviewer sans autre bloquant,
+security sans point critique ou élevé.
 
 ## Tester
 
-876 e2e passent, 2 échouent. Les 3 échecs CA-11 du tour 1 passent pour de bonnes raisons ; les
-deux modifications de ses tests par le builder sont justifiées (CL-3, ligne 96).
+987 e2e passent, 2 échouent ; 187 unitaires. Les 2 échecs du tour 2 passent pour de bonnes
+raisons ; l'adaptation de son test CA-11 au dialogue modal est justifiée (spec lignes 24-26).
 
 | ID / décision | Statut |
 | -- | -- |
-| CA-1 à CA-11, CL-1 à CL-11, cumul maximal de messages | ✅ |
-| URL propre, Nouvelle réunion, `e` futur, plus de `maxlength`, Doto, invisibles et bidi | ✅ |
-| Repli de copie à 1280×720 | ✅ |
-| Repli de copie à 1093×614 et 960×600 (Total masqué, pas de fermeture) | ❌ 2 |
+| CA-1 à CA-11, CL-1 à CL-11 | ✅ |
+| Dialogue de copie (modal, champ sélectionné, Fermer, Échap, focus rendu), statut hors ticket | ✅ |
+| `v` inconnu non réécrit, forme propre > 4 Ko refusée, `e` sans `s` signalé, notices | ✅ |
+| Zalgo plafonné, débordements coupés, ticket du Compteur sans débordement (3 tailles) | ✅ |
+| Règle 5 : noms lisibles sur le Compteur à 960×1000 et 1024×768 | ❌ 2 |
 | Lighthouse | ⚠️ non testable ici |
+
+Trous de spec : `v` absent traité comme inconnu, « Lien copié » qui reste affiché après une
+modification, bouton qui se décale quand le statut apparaît, pas d'exigence entre 360 et 1280 px.
 
 ## Reviewer
 
-- **[Bloquant]** Repli de copie en superposition, non refermable : le passer dans un `<dialog>`.
-- [Important] « Lien copié » reste affiché sans limite sur le ticket : le sortir de la pile.
-- [Important] `v` inconnu : la réécriture efface le lien (perdu à la première montée de version).
-- Mineurs : `showProposalError` partagé, `goTo(next, { push, focus })` pour les 3 transitions,
-  `launch` qui lit encore le DOM, `ParsedLink.screen` et `firstId` inutilisés, `e` sans `s`
-  silencieux, ticket qui déborde de 4 à 18 px sans élément focalisable.
+Points du tour 2 tous fermés ; `capCombiningMarks` correct.
+
+- **[Bloquant]** Noms illisibles sur le Compteur de 640 à ~1100 px (container query proposée).
+- [Important] « Lien copié » reste affiché après un changement de lien (le presse-papiers contient
+  l'ancien) : effacer le statut dans `updateMeeting`.
+- [Important] Boucle de 200 001 itérations dans `tester.test.ts:44` : 3,1 s seule, dépasse 5 s sous
+  charge (échec aléatoire de `pnpm verify`).
+- [Important] Test « Règle 5 » à étendre (640, 768, 1093, 1100, contrôle à 1280).
+- Mineurs : largeur réservée au statut (boutons qui se décalent), `aria-describedby` sur le
+  dialogue, coche du statut lue par les lecteurs d'écran.
 
 ## Security
 
-Aucun point critique ou élevé. M2 du tour 1 (bidi) corrigé ; M1 corrigé pour les 17 caractères.
+Aucun point critique ou élevé. M1 bis, M2 bis et M3 fermés (fuzz de 300 000 chaînes : forme propre
+idempotente, jamais plus de 4 marques ; pire expansion NFC couverte par le contrôle final).
 
-- **Moyen M1 bis** : U+FFFC passe `VISIBLE_CHAR` et ne s'affiche pas dans Chromium.
-- **Moyen M2 bis** : la forme propre peut dépasser 4 Ko (`%FF` → `%EF%BF%BD`) : le lien copié est
-  refusé au rechargement.
-- **Moyen M3** : marques combinantes dessinées en largeur : un libellé peut barrer son propre montant
-  et le titre peut élargir la page à 360 px.
-- Info : NFC avant retrait rend la forme propre instable (retirer, puis NFC, puis trim).
+- **Moyen M4** : un demi-surrogate collé dans un champ lève « URI malformed » (non déclenchable par
+  un lien) : retirer `\p{Cs}` dans `sanitizeText` ou `toWellFormed()`.
+- Info : alternance marques / ZWJ (dessinées à côté, contenues) ; hash du vide dans `style-src`.

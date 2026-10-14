@@ -16,14 +16,15 @@
    d'historique : Précédent rend le ticket), puis suit les modifications de la Configuration.
 - Après la lecture du lien, l'URL est réécrite sous sa forme propre (`replaceState`) : paramètres
   inconnus, doublons, participants invalides et hash retirés. « Copier le lien » copie donc
-  toujours la forme propre. Exceptions : un lien d'une version inconnue (`v` ≠ 1) n'est **pas**
+  toujours la forme propre. Exceptions : un lien d'une version inconnue (`v` absent ou ≠ 1) n'est **pas**
   réécrit (il peut venir d'une version plus récente du site, il ne doit pas être perdu) ; une forme
   propre de plus de 4 Ko est refusée comme un lien trop long.
 - Les messages du lien (notices) s'affichent jusqu'à « Fermer » ou au changement d'écran. Recharger
   la forme propre ne les réaffiche pas : elle ne contient plus rien d'invalide.
 - Repli de copie (presse-papiers refusé) : un `<dialog>` modal avec le champ « Lien à copier »
   sélectionné, un bouton « Fermer », Échap pour fermer, et le focus rendu au bouton de copie. Le
-  statut « Lien copié » s'affiche à côté du bouton, jamais par-dessus le ticket.
+  statut « Lien copié » s'affiche à côté du bouton, jamais par-dessus le ticket, sans déplacer
+  les boutons, et s'efface dès que le lien change.
 
 ## Format d'URL (fait foi)
 
@@ -89,6 +90,8 @@
 - **CA-9** L'afficheur montre derrière les chiffres des « 8 » fantômes du même nombre de
   caractères que le montant.
 - **CA-10** Le `CollectionTag` affiche « Look 01/03 » et mène au look suivant.
+- **CA-12** De 360 à 1280 px, sur le Compteur, chaque libellé de participant (jusqu'à 18
+  caractères comme dans l'exemple d'URL) est lisible en entier.
 - **CA-11** À 1280×720, l'écran Compteur tient sans défilement vertical avec jusqu'à 8
   participants (c'est l'écran qu'on laisse affiché pendant la réunion). Au-delà de 8, la liste des
   participants défile dans son propre cadre, le montant reste toujours visible. Le `CollectionTag`

@@ -1,7 +1,8 @@
 // Le seul analyseur de CSP du dépôt (reviewer, tour 2). Utilisé par les e2e, par
 // global-setup.ts et par scripts/check-csp.mjs (contrôle du site/ de production dans
 // deploy.yml). Pas de dépendance ni d'import local : Node le charge tel quel (suppression des
-// types), sans passer par Playwright.
+// types), sans passer par Playwright. cspProblems contrôle en liste blanche : directives,
+// sources et hashes non prévus par lookConfig sont refusés (détail dans son commentaire).
 
 /** Une meta CSP trouvée dans le HTML : sa position (pour vérifier qu'elle est dans <head>). */
 export type CspMeta = { readonly index: number; readonly policy: string };
@@ -92,10 +93,48 @@ export function hashSources(csp: Csp, directive: string): string[] {
   return (csp.get(directive) ?? []).filter((source) => /^'sha(?:256|384|512)-/iu.test(source));
 }
 
+/** Les directives que produit `lookConfig` : toute autre est refusée (liste blanche). */
+const ALLOWED_DIRECTIVES: ReadonlySet<string> = new Set([
+  "default-src",
+  "script-src",
+  "style-src",
+  "img-src",
+  "font-src",
+  "connect-src",
+  "base-uri",
+  "form-action",
+]);
+
+/** Les seules directives où Astro met des hashes (scripts et styles inline qu'il génère). */
+const HASHED_DIRECTIVES: ReadonlySet<string> = new Set(["script-src", "style-src"]);
+
+const HASH = /^'sha(?:256|384|512)-[A-Za-z\d+/]+={0,2}'$/u;
+
+/** Pourquoi une source est refusée quelle que soit la directive, ou `null`. */
+function forbiddenSource(value: string): string | null {
+  if (/^'nonce-/iu.test(value)) return "nonce (figé dans du HTML statique, donc public)";
+  if (/^'(?:strict-dynamic|wasm-unsafe-eval|unsafe-[^']*)'$/iu.test(value)) {
+    return "mot-clé interdit";
+  }
+  if (/^'self'$|^\*$/iu.test(value)) return "source trop large";
+  if (/^[a-z][a-z\d+.-]*:$/iu.test(value)) return "source schéma";
+  return null;
+}
+
 /**
- * Écarts entre la CSP d'une page et celle de la collection (CLAUDE.md, Sécurité) : tout fermé
- * par défaut, scripts, styles, polices et images uniquement sous `source` (le préfixe de la
- * collection). Renvoie `[]` si tout va bien.
+ * Écarts entre la CSP d'une page et celle de la collection (CLAUDE.md, Sécurité). Liste
+ * blanche, rien n'est accepté par défaut :
+ * - seules les 8 directives de `lookConfig` sont permises (default-src, script-src, style-src,
+ *   img-src, font-src, connect-src, base-uri, form-action), toute autre est refusée, même
+ *   restrictive : script-src-elem, frame-src, worker-src… priment sur celles qu'on contrôle ;
+ * - default-src, connect-src, base-uri et form-action valent exactement `'none'` ;
+ * - script-src, style-src, img-src et font-src ont pour seule source d'hôte `source` (le
+ *   préfixe de la collection) ;
+ * - des hashes bien formés (`'sha256|384|512-…'`) seulement dans script-src et style-src ;
+ * - partout refusés : nonces, `'strict-dynamic'`, `'wasm-unsafe-eval'`, `'unsafe-…'`, `'self'`,
+ *   `*` et les sources schéma (`https:`, `http:`, `data:`, `blob:`…).
+ * Ne vérifie pas quels hashes sont présents : la liste blanche calculée des hashes d'Astro
+ * est dans csp.spec.ts. Renvoie `[]` si tout va bien.
  */
 export function cspProblems(csp: Csp, source: string): string[] {
   const problems: string[] = [];
@@ -115,8 +154,21 @@ export function cspProblems(csp: Csp, source: string): string[] {
   expectExactly("base-uri", ["'none'"]);
   expectExactly("form-action", ["'none'"]);
   for (const [directive, sources] of csp) {
-    if (sources.some((value) => /^'unsafe-|^\*$|^'self'$|^data:|^blob:/iu.test(value))) {
-      problems.push(`${directive} : source trop large (${sources.join(" ")})`);
+    if (!ALLOWED_DIRECTIVES.has(directive)) {
+      problems.push(`${directive} : directive non autorisée (${sources.join(" ")})`);
+      continue;
+    }
+    for (const value of sources) {
+      const reason = forbiddenSource(value);
+      if (reason !== null) {
+        problems.push(`${directive} : ${reason} (${value})`);
+      } else if (HASH.test(value)) {
+        if (!HASHED_DIRECTIVES.has(directive)) {
+          problems.push(`${directive} : hash interdit (${value})`);
+        }
+      } else if (/^'sha/iu.test(value)) {
+        problems.push(`${directive} : hash mal formé (${value})`);
+      }
     }
   }
   return problems;

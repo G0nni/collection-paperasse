@@ -22,9 +22,12 @@ const HIGH_PUNCTUATION = new Set([":", ";", "!", "?"]);
  * Les URL ont leurs propres règles (https://, ?a=1) : on ne vérifie pas leurs espaces.
  * Insensible à la casse (`text-transform: uppercase` donne « HTTPS:// » dans `innerText`) et
  * arrêtée aux guillemets, qui ne sont jamais des caractères d'URL : « https://x.fr» reste une
- * faute.
+ * faute. La fin de la correspondance est ensuite rognée (voir urlEnd).
  */
 const URL_PATTERN = /\bhttps?:\/\/[^\s«»"“”<>]+/giu;
+
+/** Ponctuation qui, en fin d'URL, appartient à la phrase. */
+const URL_TRAILING_PUNCTUATION = /[.,:;?]$/u;
 
 export type TypographyIssueKind =
   /** Tiret cadratin : Gonni n'en veut pas (CLAUDE.md, Style de code). */
@@ -54,9 +57,35 @@ function spaceKind(char: string | undefined): "nbsp" | "narrow" | "breaking" | "
   return "other";
 }
 
+function count(text: string, char: string): number {
+  return text.split(char).length - 1;
+}
+
+/**
+ * Longueur de l'URL proprement dite dans une correspondance de URL_PATTERN : la ponctuation
+ * finale « . , : ; ? » et une « ) » sans « ( » ouvrante dans l'URL sont rendues à la phrase,
+ * pour que « (https://x.fr): ici » soit vu comme une faute. « ! » final reste dans l'URL :
+ * « https://exemple.fr/?q=1! » est une URL valide affichée telle quelle (typography.tester.test.ts).
+ */
+function urlEnd(match: string): number {
+  let url = match;
+  for (;;) {
+    if (URL_TRAILING_PUNCTUATION.test(url)) {
+      url = url.slice(0, -1);
+    } else if (url.endsWith(")") && count(url, ")") > count(url, "(")) {
+      url = url.slice(0, -1);
+    } else {
+      return url.length;
+    }
+  }
+}
+
 /** Masque les URL sans décaler les positions (même nombre de points de code). */
 function maskUrls(text: string): string {
-  return text.replace(URL_PATTERN, (url) => "x".repeat(Array.from(url).length));
+  return text.replace(URL_PATTERN, (match) => {
+    const end = urlEnd(match);
+    return "x".repeat(Array.from(match.slice(0, end)).length) + match.slice(end);
+  });
 }
 
 function excerptAround(chars: readonly string[], index: number): string {
@@ -70,19 +99,23 @@ function excerptAround(chars: readonly string[], index: number): string {
 }
 
 /**
- * Faute d'espacement d'un côté du signe : `neighbour` est le caractère collé au signe,
- * `beyond` celui d'après (dans le même sens). Il faut exactement une U+00A0, sans espace
- * sécable ni fine derrière elle.
+ * Faute d'espacement d'un côté du signe : on lit `chars` à partir de `start` (le caractère
+ * collé au signe) en avançant de `step` (-1 vers la gauche, 1 vers la droite). Il faut au
+ * moins une U+00A0, et le caractère qui suit la suite d'insécables ne doit être ni une espace
+ * sécable ni une fine : la ligne se couperait sur lui et emporterait « ⍽⍽: » à la ligne.
  */
 function spacingIssue(
-  neighbour: string | undefined,
-  beyond: string | undefined,
+  chars: readonly string[],
+  start: number,
+  step: -1 | 1,
 ): TypographyIssueKind | null {
-  const near = spaceKind(neighbour);
+  const near = spaceKind(chars[start]);
   if (near === "breaking") return "breaking-space";
   if (near === "narrow") return "narrow-nbsp";
   if (near === "other") return "missing-nbsp";
-  const far = spaceKind(beyond);
+  let index = start;
+  while (spaceKind(chars[index]) === "nbsp") index += step;
+  const far = spaceKind(chars[index]);
   if (far === "breaking") return "breaking-space";
   if (far === "narrow") return "narrow-nbsp";
   return null;
@@ -112,12 +145,12 @@ export function findTypographyIssues(text: string): TypographyIssue[] {
       return;
     }
     if (char === "«") {
-      const kind = spacingIssue(next, chars[index + 2]);
+      const kind = spacingIssue(chars, index + 1, 1);
       if (kind !== null) report(kind, index);
       return;
     }
     if (char === "»") {
-      const kind = spacingIssue(previous, chars[index - 2]);
+      const kind = spacingIssue(chars, index - 1, -1);
       if (kind !== null) report(kind, index);
       return;
     }
@@ -132,7 +165,7 @@ export function findTypographyIssues(text: string): TypographyIssue[] {
     if ((char === "!" || char === "?") && (previous === "!" || previous === "?")) {
       return;
     }
-    const kind = spacingIssue(previous, chars[index - 2]);
+    const kind = spacingIssue(chars, index - 1, -1);
     if (kind !== null) report(kind, index);
   });
 

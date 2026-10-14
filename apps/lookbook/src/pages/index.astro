@@ -7,6 +7,7 @@ import "@fontsource/jetbrains-mono/700.css";
 import "@fontsource/courier-prime/400.css";
 import "@fontsource/courier-prime/700.css";
 import { REPO_URL } from "@paperasse/shared/config";
+import { NBSP } from "@paperasse/shared/typography";
 import ActePreview from "../components/ActePreview.astro";
 import ListingPreview from "../components/ListingPreview.astro";
 import TicketPreview from "../components/TicketPreview.astro";
@@ -80,7 +81,7 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
                   <a class="try" href={card.href} aria-label={card.linkLabel}>
                     <span>
                       {card.linkText}
-                      <span aria-hidden="true">&nbsp;→</span>
+                      <span aria-hidden="true">{NBSP}→</span>
                     </span>
                   </a>
                 </div>
@@ -109,7 +110,7 @@ const catalog = buildCatalog().map((card) => ({ ...card, Preview: PREVIEWS[card.
           <a class="repo" href={REPO_URL}>
             <span>
               {PAGE_TEXT.repoLink}
-              <span aria-hidden="true">&nbsp;→</span>
+              <span aria-hidden="true">{NBSP}→</span>
             </span>
           </a>
         </div>

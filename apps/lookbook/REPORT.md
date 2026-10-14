@@ -1,4 +1,33 @@
-# Rapport lookbook · tour 3 (dernier tour)
+# Rapport lookbook · passage final (après le tour 3)
+
+## Verdict
+
+**Fini.** Les 6 points de la définition de « fini » de `CLAUDE.md` sont vrais :
+
+1. CA-1 à CA-5 couverts et verts (la spec ne liste pas de CL).
+2. Aucun cas limite listé dans la spec.
+3. `pnpm verify` vert, relancé par l'orchestrateur : 222 + 10 tests unitaires, 247 e2e
+   (41 sautés volontairement, tests à viewport fixe limités au desktop).
+4. Reviewer : 0 bloquant au tour 3.
+5. Security : aucun point critique ou élevé au tour 3.
+6. Axe : 0 violation (360, 960, 1280 px).
+
+Passage final, décidé avec Gonni après le tour 3 :
+
+- `cspProblems` / `check-csp.mjs` en liste blanche (8 directives, hashes seulement dans
+  script-src et style-src, nonces, `strict-dynamic` et sources schéma refusés).
+- Oracle typographique : suite d'insécables sautée, ponctuation finale rognée des URL (sauf `!`,
+  qui fait partie des URL dans deux tests existants).
+- `&nbsp;→` remplacés par la constante `NBSP` partagée.
+- Périmètre du tester et du reviewer recadré dans `.claude/agents/` pour les prochains looks.
+
+Toujours ouverts (non bloquants) : actions GitHub épinglées par tag et non par SHA ;
+`check-csp.mjs` importe un fichier de `tests/e2e/support/` ; `check-csp` ne contrôle pas la liste
+des hashes présents (seul l'e2e le fait) ; Lighthouse non mesuré dans cet environnement.
+
+---
+
+# Historique : rapport du tour 3
 
 ## Ce qui bloque
 

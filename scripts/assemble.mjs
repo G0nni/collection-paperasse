@@ -1,7 +1,7 @@
 // Assemble le build de chaque app dans site/, tel qu'il sera servi par GitHub Pages :
 //   site/            ← apps/lookbook/dist
 //   site/<look>/     ← apps/<look>/dist
-import { cp, lstat, mkdir, readdir, rm } from "node:fs/promises";
+import { cp, lstat, readdir, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,7 +42,8 @@ if (apps[0] !== ROOT_APP) {
 }
 
 await rm(siteDir, { recursive: true, force: true });
-await mkdir(siteDir, { recursive: true });
+// Pas de mkdir : c'est la copie du lookbook qui crée site/. Depuis Node 22.23, cp avec
+// errorOnExist refuse de copier dans un dossier existant, même vide.
 
 for (const app of apps) {
   const dist = join(appsDir, app, "dist");

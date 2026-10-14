@@ -1,0 +1,42 @@
+---
+// Page provisoire : le builder la remplace en suivant specs/reunion-metre.md.
+import CollectionTag from "@paperasse/shared/CollectionTag.astro";
+---
+
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Réunion-mètre · Collection Paperasse</title>
+    <meta name="description" content="Ce que coûte votre réunion, en direct." />
+  </head>
+  <body>
+    <main>
+      <p class="look">Look 01</p>
+      <h1>Réunion-mètre</h1>
+      <p>Look en cours de couture. Revenez après le défilé.</p>
+    </main>
+    <CollectionTag slug="reunion-metre" />
+  </body>
+</html>
+
+<style is:global>
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    font-family: system-ui, sans-serif;
+    background: #ffffff;
+    color: #0e0e0e;
+  }
+
+  main {
+    max-width: 40rem;
+    margin: 0 auto;
+  }
+
+  .look {
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+</style>

@@ -1,0 +1,42 @@
+---
+// Page provisoire : le builder la remplace en suivant specs/jure-crache.md.
+import CollectionTag from "@paperasse/shared/CollectionTag.astro";
+---
+
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Juré Craché · Collection Paperasse</title>
+    <meta name="description" content="Étude notariale fondée dans la cour de récré." />
+  </head>
+  <body>
+    <main>
+      <p class="look">Look 02</p>
+      <h1>Juré Craché</h1>
+      <p>Look en cours de couture. Revenez après le défilé.</p>
+    </main>
+    <CollectionTag slug="jure-crache" />
+  </body>
+</html>
+
+<style is:global>
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    font-family: system-ui, sans-serif;
+    background: #ffffff;
+    color: #0e0e0e;
+  }
+
+  main {
+    max-width: 40rem;
+    margin: 0 auto;
+  }
+
+  .look {
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+</style>

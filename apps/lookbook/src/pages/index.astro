@@ -1,0 +1,59 @@
+---
+// Page provisoire : le builder la remplace en suivant specs/lookbook.md.
+import { baseFor, REPO_URL } from "@paperasse/shared/config";
+import { LOOKS } from "@paperasse/shared/looks";
+---
+
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Collection Paperasse · Automne-Hiver 2026</title>
+    <meta
+      name="description"
+      content="Trois documents officiels. Aucune valeur. Zéro inscription."
+    />
+  </head>
+  <body>
+    <main>
+      <h1>Collection Paperasse</h1>
+      <p>Automne-Hiver 2026 · Trois documents officiels. Aucune valeur. Zéro inscription.</p>
+      <ol>
+        {LOOKS.map((look) => (
+          <li>
+            <a href={baseFor(look.slug)}>
+              Look {String(look.number).padStart(2, "0")} · {look.name}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </main>
+    <footer>
+      <p>Aucun cookie, aucun compte, aucun serveur.</p>
+      <a href={REPO_URL}>Le code sur GitHub</a>
+    </footer>
+  </body>
+</html>
+
+<style is:global>
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    font-family: system-ui, sans-serif;
+    background: #ffffff;
+    color: #0e0e0e;
+  }
+
+  main,
+  footer {
+    max-width: 40rem;
+    margin: 0 auto;
+  }
+
+  a {
+    color: inherit;
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+</style>

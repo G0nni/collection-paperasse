@@ -1,0 +1,60 @@
+---
+import { tagFor } from "./looks";
+
+type Props = { slug: string };
+
+const { slug } = Astro.props;
+const tag = tagFor(slug);
+---
+
+<nav class="collection-tag" aria-label="Collection">
+  <a class="brand" href={tag.lookbookHref}>
+    Collection Paperasse · AH26
+  </a>
+  <span class="look">{tag.label}</span>
+  <a class="next" href={tag.nextHref}>
+    {tag.nextLabel} <span aria-hidden="true">→</span>
+  </a>
+</nav>
+
+<style>
+  .collection-tag {
+    --_bg: var(--tag-bg, #ffffff);
+    --_fg: var(--tag-fg, #0e0e0e);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem 1.25rem;
+    max-width: 40rem;
+    margin: 3rem auto 1.5rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--_bg);
+    color: var(--_fg);
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 0.8125rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    /* Points de couture : un pointillé à l'intérieur du bord. */
+    outline: 1.5px dashed var(--_fg);
+    outline-offset: -6px;
+    border: 1px solid var(--_fg);
+  }
+
+  a {
+    color: inherit;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    text-underline-offset: 0.25em;
+  }
+
+  a:hover,
+  a:focus-visible {
+    text-decoration-thickness: 2px;
+  }
+
+  .look {
+    font-weight: 700;
+  }
+</style>

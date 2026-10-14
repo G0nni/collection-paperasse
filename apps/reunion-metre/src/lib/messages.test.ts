@@ -11,6 +11,7 @@ const NOTICE_CODES: Readonly<Record<NoticeCode, true>> = {
   "future-start": true,
   "bad-start": true,
   "bad-end": true,
+  "future-end": true,
   "bad-tariff": true,
   "bad-title": true,
   "too-many-participants": true,

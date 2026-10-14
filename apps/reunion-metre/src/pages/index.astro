@@ -9,7 +9,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/700.css";
 import CollectionTag from "@paperasse/shared/CollectionTag.astro";
 import { NBSP } from "@paperasse/shared/typography";
-import { LIMITS, ROLES, TARIFFS, TARIFF_CODES } from "../lib/meeting";
+import { LIMITS, ROLES, SETUP_DEFAULT_TARIFF, TARIFFS, TARIFF_CODES } from "../lib/meeting";
 import { TEXT, rateText } from "../lib/messages";
 
 const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
@@ -56,13 +56,23 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
             </button>
           </div>
         </header>
-        <p class="message" id="copy-status" aria-live="polite"></p>
-        <p class="share-fallback" id="copy-fallback" hidden>
-          <label for="copy-field">{TEXT.linkField}</label>
-          <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
-        </p>
-        <div role="status">
-          <ul class="messages" id="notices"></ul>
+        {/* Retours de copie et messages du lien. Sur le Compteur en grand écran, cette pile
+            flotte sous le ticket : elle ne prend jamais de hauteur à la liste (CA-11). */}
+        <div class="feedback">
+          <p class="message" id="copy-status" aria-live="polite"></p>
+          <p class="share-fallback" id="copy-fallback" hidden>
+            <label for="copy-field">{TEXT.linkField}</label>
+            <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
+          </p>
+          <div class="notices">
+            <div class="notices-text" role="status">
+              <ul class="messages" id="notices"></ul>
+            </div>
+            <button type="button" class="dismiss" id="dismiss-notices" hidden>
+              {TEXT.dismiss}
+              <span class="visually-hidden">{` ${TEXT.dismissContext}`}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -72,7 +82,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
             <h2 class="label" id="amount-heading">
               {TEXT.amountHeading}
             </h2>
-            <div class="led-block">
+            <div class="board-main">
               <div class="led">
                 {/* Le résumé accessible est dans aria-label (au plus toutes les 30 s, CA-8) :
                   les chiffres qui changent chaque seconde sont masqués aux lecteurs d'écran. */}
@@ -90,26 +100,28 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
                     0,00
                   </span>
                 </div>
+                {/* Alertes CL-2 et CL-6 sur la ligne de l'afficheur, comme le voyant d'un
+                    taximètre : elles ne poussent pas la liste des participants. */}
+                <div class="led-status" role="status">
+                  <ul class="alerts" id="alerts"></ul>
+                </div>
               </div>
-              <div role="status">
-                <ul class="messages alerts" id="alerts"></ul>
-              </div>
+              <dl class="stats">
+                <div class="stat">
+                  <dt>{TEXT.durationLabel}</dt>
+                  <dd id="clock">00:00:00</dd>
+                </div>
+                <div class="stat">
+                  <dt>{TEXT.countLabel}</dt>
+                  <dd id="count">00</dd>
+                </div>
+                <div class="stat">
+                  <dt>{TEXT.hourlyLabel}</dt>
+                  <dd id="hourly">0</dd>
+                </div>
+              </dl>
             </div>
             <p class="ended ticket-only">{TEXT.ended}</p>
-            <dl class="stats">
-              <div class="stat">
-                <dt>{TEXT.durationLabel}</dt>
-                <dd id="clock">00:00:00</dd>
-              </div>
-              <div class="stat">
-                <dt>{TEXT.countLabel}</dt>
-                <dd id="count">00</dd>
-              </div>
-              <div class="stat">
-                <dt>{TEXT.hourlyLabel}</dt>
-                <dd id="hourly">0</dd>
-              </div>
-            </dl>
           </section>
 
           <form class="controls" id="controls" novalidate>
@@ -121,7 +133,6 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
               <input
                 id="title"
                 type="text"
-                maxlength={LIMITS.titleMax}
                 autocomplete="off"
                 placeholder={TEXT.titlePlaceholder}
                 aria-describedby="title-error"
@@ -139,7 +150,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
                       type="radio"
                       name="tariff"
                       value={tariff.code}
-                      checked={tariff.code === "B"}
+                      checked={tariff.code === SETUP_DEFAULT_TARIFF}
                     />
                     <span class="tariff-code">{tariff.code}</span>
                     <span class="tariff-name">{tariff.name}</span>
@@ -149,21 +160,25 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
               </div>
             </fieldset>
 
-            <fieldset class="people">
-              <legend class="label">{TEXT.peopleLegend}</legend>
-              <ol class="people-list" id="people" role="list"></ol>
-              <p class="people-footer">
-                <button type="button" class="add-person" id="add-person">
-                  {TEXT.addPerson}
-                </button>
-                <span class="people-full" id="people-full" hidden>
-                  {TEXT.peopleFull}
-                </span>
-              </p>
-            </fieldset>
+            {/* Bloc sans gap : l'erreur vide n'y prend aucune place mais reste dans l'arbre
+                d'accessibilité, pour que la région live annonce ce qui s'y écrit. */}
+            <div class="people-block">
+              <fieldset class="people">
+                <legend class="label">{TEXT.peopleLegend}</legend>
+                <ol class="people-list" id="people" role="list"></ol>
+                <p class="people-footer">
+                  <button type="button" class="add-person" id="add-person">
+                    {TEXT.addPerson}
+                  </button>
+                  <span class="people-full" id="people-full" hidden>
+                    {TEXT.peopleFull}
+                  </span>
+                </p>
+              </fieldset>
 
-            {/* Hors du bloc de lancement : visible aussi pendant le Compteur. */}
-            <p class="error form-error" id="form-error"></p>
+              {/* Hors du bloc de lancement : visible aussi pendant le Compteur. */}
+              <p class="error form-error" id="form-error" aria-live="polite"></p>
+            </div>
 
             <div class="launch setup-only">
               <p class="hourly-preview">
@@ -253,7 +268,6 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
               data-slot="who"
               type="text"
               list="roles"
-              maxlength={LIMITS.labelMax}
               autocomplete="off"
               spellcheck="false"
             />
@@ -334,7 +348,12 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     display: none !important;
   }
 
-  .visually-hidden {
+  /* Masqué à l'écran, lu par les lecteurs d'écran. Les <label> des lignes participant restent
+     ainsi sur chaque ligne : la première sert d'en-tête de colonnes, et le Compteur les remplace
+     par l'unité « €/h ». */
+  .visually-hidden,
+  .person:not(:first-child) .person-label,
+  main[data-screen="meter"] .person-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -489,21 +508,26 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
 
   /* ---------- Messages ---------- */
 
-  /* Blocs sans gap : une liste de messages vide ne prend aucune place (CA-11) mais reste dans
-     l'arbre d'accessibilité, pour que ce qui s'y écrit ensuite soit annoncé. */
+  /* Blocs sans gap : un message vide ne prend aucune place (CA-11) mais sa région live reste
+     dans l'arbre d'accessibilité, pour que ce qui s'y écrit ensuite soit annoncé. */
   .top,
-  .led-block {
+  .feedback {
     display: block;
   }
 
-  .messages {
+  .messages,
+  .alerts {
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .messages :global(li),
-  .message:not(:empty) {
+  .message {
+    margin: 0;
+  }
+
+  .message:not(:empty),
+  .notices:has(li) {
     margin: 0.625rem 0 0;
     padding: 0.5rem 0.875rem;
     border-left: 4px solid var(--amber);
@@ -511,13 +535,40 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     font-size: 0.9375rem;
   }
 
-  .message {
-    margin: 0;
+  .notices {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 0.875rem;
   }
 
-  .alerts :global(li) {
-    background: var(--led);
-    font-weight: 600;
+  .notices:has(li) {
+    padding-block: 0.375rem;
+    padding-right: 0.375rem;
+  }
+
+  .notices-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .messages :global(li + li) {
+    margin-top: 0.25rem;
+  }
+
+  .dismiss {
+    flex: none;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 0.875rem;
+    border: 1.5px solid var(--muted);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.875rem;
+  }
+
+  .dismiss:hover {
+    border-style: dashed;
   }
 
   .ended {
@@ -531,6 +582,7 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     align-items: center;
     gap: 0.5rem 0.75rem;
     margin: 0.625rem 0 0;
+    background: var(--bg);
   }
 
   .share-fallback label {
@@ -608,13 +660,43 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     min-width: 0;
   }
 
+  .board-main {
+    display: grid;
+    gap: 0.625rem;
+  }
+
   .led {
     container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     padding: 0.875rem 1.125rem;
     background: var(--led);
     border-radius: 12px;
     box-shadow: inset 0 2px 12px rgb(0 0 0 / 0.8);
     overflow: hidden;
+  }
+
+  /* Voyant d'alerte de l'afficheur (CL-2, CL-6) : icône ET texte, jamais la couleur seule. */
+  .alerts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+  }
+
+  .alerts :global(li) {
+    color: var(--amber);
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .alerts :global(li:first-child) {
+    margin-top: 0.5rem;
+  }
+
+  .alerts :global(li)::before {
+    content: "⚠ ";
   }
 
   .led-readout {
@@ -687,6 +769,32 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     font-size: min(1.75rem, 100cqi / 5);
     line-height: 1.1;
     white-space: nowrap;
+  }
+
+  /* Grand écran : les stats se rangent à droite de l'afficheur, sur sa hauteur, au lieu de
+     prendre une rangée en dessous (CA-11). */
+  @media (min-width: 60rem) {
+    .board-main {
+      grid-template-columns: minmax(0, 1fr) 15.5rem;
+    }
+
+    .stats {
+      grid-template-columns: 1fr;
+      grid-auto-rows: 1fr;
+      gap: 0.375rem;
+    }
+
+    .stat {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.25rem 0.75rem;
+    }
+
+    .stat dd {
+      font-size: 1.5rem;
+    }
   }
 
   /* ---------- Formulaire ---------- */
@@ -808,8 +916,9 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
   }
 
   .tariff-factor {
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: 1rem;
   }
 
   .people {
@@ -848,20 +957,16 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     font-weight: 600;
   }
 
-  /* Les <label> restent sur chaque ligne pour les lecteurs d'écran ; à l'écran, la première
-     ligne sert d'en-tête de colonnes. */
-  .person:not(:first-child) .person-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
   .person-input {
     width: 100%;
     min-width: 0;
+  }
+
+  /* Taux en chiffres Doto, comme tout chiffre hors ticket. */
+  input.rate-input {
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: 1.125rem;
   }
 
   .rate-box {
@@ -962,25 +1067,29 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
 
   .hourly-preview strong {
     color: var(--amber);
-    font-family: var(--font-mono);
-    font-size: 1.125rem;
+    font-family: var(--font-digits);
+    font-weight: 900;
+    font-size: 1.375rem;
   }
 
-  .form-error {
+  .people-block {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Toujours dans l'arbre d'accessibilité (région live) : vide, il ne prend aucune place. */
+  .form-error,
+  .form-error:empty {
+    display: block;
     margin: 0;
   }
 
-  /* Compteur : participants en lignes compactes sur deux colonnes ; libellés visuels
-     remplacés par l'unité « €/h » (les <label> restent pour les lecteurs d'écran). */
-  main[data-screen="meter"] .person-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  .form-error:not(:empty) {
+    margin-top: 0.5rem;
   }
 
+  /* Compteur : participants en lignes compactes sur deux colonnes, unité « €/h » visible. */
   main[data-screen="meter"] .person-fields {
     grid-template-columns: minmax(0, 1fr) 6.75rem auto;
     align-items: center;
@@ -1019,6 +1128,8 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     main[data-screen="meter"] .people-list {
       grid-row: 2;
       grid-column: 1 / -1;
+      /* En haut de la place libre : la marge laissée pour les messages reste sous la liste. */
+      align-self: start;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.5rem 0.875rem;
     }
@@ -1053,9 +1164,40 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     }
 
     main[data-screen="meter"] .controls,
+    main[data-screen="meter"] .people-block,
     main[data-screen="meter"] .people {
       flex: 1 1 auto;
       min-height: 0;
+    }
+
+    /* Retours de copie et messages du lien : une pile qui flotte en bas de la colonne du ticket,
+       là où le ticket en cours laisse de la place. Elle ne prend aucune hauteur à la liste des
+       participants, quel que soit le nombre de messages (CA-11) ; « Fermer » la retire. */
+    main[data-screen="meter"] {
+      position: relative;
+    }
+
+    main[data-screen="meter"] .feedback {
+      position: absolute;
+      z-index: 1;
+      right: 1rem;
+      bottom: 1rem;
+      box-sizing: border-box;
+      width: 21.5rem;
+      max-height: calc(100% - 8rem);
+      overflow-y: auto;
+    }
+
+    main[data-screen="meter"] .message:not(:empty),
+    main[data-screen="meter"] .share-fallback,
+    main[data-screen="meter"] .notices:has(li) {
+      outline: 1px solid var(--line);
+      box-shadow: 0 8px 28px rgb(0 0 0 / 0.65);
+    }
+
+    main[data-screen="meter"] .share-fallback {
+      padding: 0.625rem 0.875rem;
+      background: var(--panel);
     }
 
     main[data-screen="meter"] .people-list {

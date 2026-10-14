@@ -1,6 +1,8 @@
 // Formatage des montants, durées et dates (CLAUDE.md : montants en Intl.NumberFormat fr-FR EUR).
 // L'arrondi au centime est fait en amont (meter.ts) : on ne formate que des centimes entiers.
 import { NBSP } from "@paperasse/shared/typography";
+import type { Meeting } from "./meeting";
+import { TEXT } from "./messages";
 
 const EUROS = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const WHOLE_EUROS = new Intl.NumberFormat("fr-FR", {
@@ -15,21 +17,38 @@ export function formatEuros(cents: number): string {
   return EUROS.format(cents / 100);
 }
 
+const hourlyFormat = (cents: number) => (cents % 100 === 0 ? WHOLE_EUROS : EUROS);
+
 /** Coût horaire : « 245 € » s'il tombe rond, « 367,50 € » sinon. */
 export function formatHourly(cents: number): string {
-  return cents % 100 === 0 ? WHOLE_EUROS.format(cents / 100) : EUROS.format(cents / 100);
+  return hourlyFormat(cents).format(cents / 100);
 }
 
 /**
- * Montant de l'afficheur LED, sans le symbole (affiché à part, en petit) : « 1 247,80 ».
  * Le séparateur de milliers d'Intl (U+202F) n'existe pas dans Doto : il est remplacé par
- * U+00A0, que Doto dessine à la même chasse que les chiffres. Les « 8 » fantômes restent ainsi
- * alignés sous le montant.
+ * U+00A0, que Doto dessine à la même chasse que les chiffres.
+ */
+function digitsParts(format: Intl.NumberFormat, cents: number): Intl.NumberFormatPart[] {
+  return format
+    .formatToParts(cents / 100)
+    .map((part) => (part.type === "group" ? { ...part, value: NBSP } : part));
+}
+
+/**
+ * Montant de l'afficheur LED, sans le symbole (affiché à part, en petit, devant) : « 1 247,80 ».
+ * Milliers séparés par U+00A0 : les « 8 » fantômes restent alignés sous le montant.
  */
 export function ledAmount(cents: number): string {
-  return EUROS.formatToParts(cents / 100)
+  return digitsParts(EUROS, cents)
     .filter((part) => part.type !== "currency" && part.type !== "literal")
-    .map((part) => (part.type === "group" ? NBSP : part.value))
+    .map((part) => part.value)
+    .join("");
+}
+
+/** Coût horaire en chiffres Doto (stats, aperçu) : « 1 245 € », milliers en U+00A0. */
+export function ledHourly(cents: number): string {
+  return digitsParts(hourlyFormat(cents), cents)
+    .map((part) => part.value)
     .join("");
 }
 
@@ -95,4 +114,18 @@ export function formatDate(seconds: number, timeZone?: string): string {
 /** « 09:05 ». */
 export function formatTime(seconds: number, timeZone?: string): string {
   return dateFormat({ timeStyle: "short" }, timeZone).format(seconds * 1000);
+}
+
+/**
+ * Ligne « quand » du ticket : « 14/10/2026 · 09:00 – 09:42 », la date de fin seulement si la
+ * réunion a passé minuit, « en cours » tant qu'elle tourne. À l'heure de l'appareil (CL-10).
+ */
+export function receiptWhen(meeting: Meeting, timeZone?: string): string {
+  if (meeting.start === null) return "";
+  const startDate = formatDate(meeting.start, timeZone);
+  const startText = `${startDate} · ${formatTime(meeting.start, timeZone)}`;
+  if (meeting.end === null) return `${startText} – ${TEXT.receiptRunning}`;
+  const endDate = formatDate(meeting.end, timeZone);
+  const endTime = formatTime(meeting.end, timeZone);
+  return `${startText} – ${endDate === startDate ? endTime : `${endDate} ${endTime}`}`;
 }

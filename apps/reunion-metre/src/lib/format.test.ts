@@ -1,5 +1,6 @@
 import { NARROW_NBSP, NBSP } from "@paperasse/shared/typography";
 import { describe, expect, it } from "vitest";
+import type { Meeting } from "./meeting";
 import {
   formatClock,
   formatCount,
@@ -9,6 +10,8 @@ import {
   formatTime,
   ghostDigits,
   ledAmount,
+  ledHourly,
+  receiptWhen,
   spokenAmount,
   spokenDuration,
   spokenSummary,
@@ -94,5 +97,47 @@ describe("CL-10 · dates à l'heure de l'appareil", () => {
     expect(formatDate(1_760_425_200, "Europe/Paris")).toBe("14/10/2025");
     expect(formatTime(1_760_425_200, "Europe/Paris")).toBe("09:00");
     expect(formatTime(1_760_425_200, "America/New_York")).toBe("03:00");
+  });
+});
+
+describe("coût horaire en chiffres Doto", () => {
+  it("milliers en U+00A0 (Doto n'a pas U+202F), symbole après, comme Intl", () => {
+    expect(ledHourly(52_200)).toBe(`522${NBSP}€`);
+    expect(ledHourly(6_000_000)).toBe(`60${NBSP}000${NBSP}€`);
+    expect(ledHourly(36_750)).toBe(`367,50${NBSP}€`);
+    expect(ledHourly(6_000_000)).not.toContain(NARROW_NBSP);
+  });
+});
+
+describe("CL-10 · ligne « quand » du ticket", () => {
+  const PARIS = "Europe/Paris";
+  /** 14/10/2026 23:50 à Paris. */
+  const LATE = Date.UTC(2026, 9, 14, 21, 50, 0) / 1000;
+  const base = { tariff: "A", participants: [{ rate: 1, label: "Ana" }], title: "" } as const;
+  const at = (start: number, end: number | null): Meeting => ({ ...base, start, end });
+
+  it("vide tant que la réunion n'est pas lancée", () => {
+    expect(receiptWhen({ ...base, start: null, end: null }, PARIS)).toBe("");
+  });
+
+  it("en cours", () => {
+    expect(receiptWhen(at(LATE, null), PARIS)).toBe("14/10/2026 · 23:50 – en cours");
+  });
+
+  it("même jour : l'heure de fin seule", () => {
+    expect(receiptWhen(at(LATE, LATE + 540), PARIS)).toBe("14/10/2026 · 23:50 – 23:59");
+  });
+
+  it("autour de minuit : la date de fin s'ajoute dès qu'on change de jour", () => {
+    expect(receiptWhen(at(LATE, LATE + 599), PARIS)).toBe("14/10/2026 · 23:50 – 23:59");
+    expect(receiptWhen(at(LATE, LATE + 600), PARIS)).toBe("14/10/2026 · 23:50 – 15/10/2026 00:00");
+    expect(receiptWhen(at(LATE, LATE + 1200), PARIS)).toBe("14/10/2026 · 23:50 – 15/10/2026 00:10");
+  });
+
+  it("le jour dépend du fuseau de l'appareil, pas de l'UTC", () => {
+    // 21:50 UTC → 23:50 à Paris, 17:50 à New York : même jour à New York.
+    expect(receiptWhen(at(LATE, LATE + 1200), "America/New_York")).toBe(
+      "14/10/2026 · 17:50 – 18:10",
+    );
   });
 });

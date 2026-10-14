@@ -1210,13 +1210,23 @@ test.describe("reunion-metre · tester", () => {
     expect(await shownAmount(page)).toBe(euros(cost(DAY, SPEC_TEAM, "B")));
   });
 
-  test("e postérieur à maintenant mais ≤ s + 86 400 → Ticket (la spec ne borne pas e par maintenant)", async ({
+  // Spec mise à jour après le tour 1 (CL-3) : un e plus de 60 s dans le futur est ignoré, avec
+  // message. Ce test attendait un Ticket quand la spec ne bornait pas e par maintenant.
+  test("CL-3 · e > maintenant + 60 s (fin dans le futur) → e ignoré, Compteur + message", async ({
     page,
   }) => {
     const s = NOW - 600;
     await openFixed(page, query({ s, e: s + 3600 }));
+    await expectCounter(page);
+    expect(await shownAmount(page)).toBe(euros(cost(600, SPEC_TEAM, "B")));
+    await expect(messages(page).filter({ hasText: /fin/iu })).toHaveCount(1);
+  });
+
+  test("CL-3 · e = maintenant + 60 s (borne incluse) → Ticket", async ({ page }) => {
+    const s = NOW - 600;
+    await openFixed(page, query({ s, e: NOW + 60 }));
     await expectTicket(page);
-    expect(await shownAmount(page)).toBe(euros(cost(3600, SPEC_TEAM, "B")));
+    expect(await shownAmount(page)).toBe(euros(cost(660, SPEC_TEAM, "B")));
   });
 
   for (const [label, e] of [

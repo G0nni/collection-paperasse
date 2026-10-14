@@ -457,7 +457,8 @@ test.describe("reunion-metre · CA-11 · tient à 1280 × 720", () => {
     });
   }
 
-  for (const count of [9, 12, 30]) {
+  // CA-11 ne garantit l'absence de défilement que jusqu'à 8 : à 9, la liste peut encore tenir.
+  for (const count of [12, 30]) {
     test(`CA-11 · ${count} participants : la liste défile dans son cadre, le montant reste visible`, async ({
       page,
     }) => {
@@ -711,5 +712,275 @@ test.describe("reunion-metre · qualité sur chaque écran", () => {
       );
       expect(small).toEqual([]);
     }
+  });
+});
+
+test.describe("reunion-metre · tour 2", () => {
+  const eight = (rate?: number) =>
+    Array.from({ length: 8 }, (_, index) =>
+      p(rate ?? 40 + index, `Participant au nom assez long ${index + 1}`),
+    );
+
+  /** Les 8 champs « Qui » sont entiers à l'écran et la liste ne défile pas (CA-11). */
+  async function expectEightFit(page: Page) {
+    const who = page.getByLabel("Qui", { exact: true });
+    await expect(who).toHaveCount(8);
+    for (const field of await who.all()) await expect(field).toBeInViewport({ ratio: 1 });
+    await expect(timer(page)).toBeInViewport({ ratio: 1 });
+    const state = await page.evaluate(() => {
+      const list = document.getElementById("people");
+      return {
+        listOverflow: list === null ? -1 : list.scrollHeight - list.clientHeight,
+        mainBottom: document.querySelector("main")?.getBoundingClientRect().bottom ?? 9999,
+        scrollY: window.scrollY,
+      };
+    });
+    expect(state.listOverflow, "la liste des 8 participants ne défile pas").toBeLessThanOrEqual(0);
+    expect(state.mainBottom).toBeLessThanOrEqual(720);
+    expect(state.scrollY).toBe(0);
+  }
+
+  test("CA-11 · pire cas : 8 participants + CL-2 + CL-6 + une notice du lien, sans défilement", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    // Tous les taux à 0 (CL-6), lancé il y a deux jours (CL-2), un participant illisible.
+    await openAt(
+      page,
+      link("v=1", "t=B", ...eight(0), "p=12.5|x", `s=${S}`, "n=Point rapide"),
+      S + 2 * 86_400,
+    );
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.getByRole("status").getByRole("listitem")).toHaveCount(3);
+    await expect(page.getByText("Réunion bénévole. Suspect.")).toBeVisible();
+    await expect(page.getByText(/Réunion de plus de 24\sh\. Respirez\./u)).toBeVisible();
+    await expect(page.getByText("1 participant illisible a été ignoré.")).toBeVisible();
+    await expectEightFit(page);
+  });
+
+  test("CA-11 · 8 participants + tous les messages possibles + repli de copie : la liste ne défile pas", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "viewport fixé par le test");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    });
+    await openAt(
+      page,
+      link("v=1", "t=Z", ...eight(0), "p=1e3|x", "p=-1|y", `s=${S}`, "e=1", `n=${"a".repeat(61)}`),
+      S + 2 * 86_400,
+    );
+    await page.evaluate(() => document.fonts.ready);
+    // Tarif inconnu, titre trop long, participants ignorés, fin illisible + CL-2 + CL-6.
+    await expect(page.getByRole("status").getByRole("listitem")).toHaveCount(6);
+    await page.getByRole("button", { name: "Copier le lien du compteur" }).click();
+    await expect(page.getByLabel("Lien à copier")).toBeVisible();
+    await expectEightFit(page);
+  });
+
+  test("notices du lien refermables : « Fermer » les retire, le focus va à « Terminer »", async ({
+    page,
+  }) => {
+    await openAt(page, link("v=1", "t=Z", p(10, "Ana"), "p=x|y", `s=${S}`), S + 60);
+    const close = page.getByRole("button", { name: "Fermer les messages du lien" });
+    await expect(page.getByText("Tarif inconnu", { exact: false })).toBeVisible();
+    await close.click();
+    await expect(notices(page).first()).toBeEmpty();
+    await expect(close).toBeHidden();
+    await expect(page.getByRole("button", { name: "Terminer" })).toBeFocused();
+    // Sans notice, pas de bouton « Fermer ».
+    await openAt(page, link("v=1", p(10, "Ana"), `s=${S}`), S + 60);
+    await expect(close).toBeHidden();
+  });
+
+  test("notices refermables aussi en Configuration : le focus va au titre de l'écran", async ({
+    page,
+  }) => {
+    await openAt(page, link("v=1", p(10, "Ana"), `s=${S + 9999}`), S);
+    await page.getByRole("button", { name: "Fermer les messages du lien" }).click();
+    await expect(notices(page).first()).toBeEmpty();
+    await expect(page.getByRole("heading", { name: "Préparer la réunion" })).toBeFocused();
+  });
+
+  test("URL réécrite sous forme propre : inconnus, doublons, invalides et hash retirés", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const messy = `${link("utm_source=chat", "n=Revue", "t=C", "t=A", "p=12.5|x", p(48, "Quelqu'un"), "v=1", `s=${S}`, `s=${S + 5}`)}#truc`;
+    await openAt(page, messy, S + 60);
+    const clean = `/collection-paperasse/reunion-metre/?v=1&t=C&p=48|Quelqu%27un&s=${S}&n=Revue`;
+    expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(clean);
+    expect(new URL(page.url()).hash).toBe("");
+    // Réécrite sur place (replaceState) : Précédent ne ramène pas au lien d'origine.
+    const length = await page.evaluate(() => history.length);
+    await page.reload();
+    expect(await page.evaluate(() => history.length)).toBe(length);
+    await page.getByRole("button", { name: "Copier le lien du compteur" }).click();
+    await expect(page.getByText("Lien copié. Collez-le dans le chat de la réunion.")).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(page.url());
+  });
+
+  test("URL réécrite : un lien ignoré en entier redevient l'adresse nue", async ({ page }) => {
+    await openAt(page, link("v=2", p(10, "Ana"), `s=${S}`), S + 60);
+    await expect(notices(page).first()).toContainText("Lien d'une version inconnue");
+    expect(new URL(page.url()).search).toBe("");
+  });
+
+  test("Nouvelle réunion : Précédent rend le ticket, puis l'URL suit la Configuration sans nouvelle entrée", async ({
+    page,
+  }) => {
+    await openAt(
+      page,
+      link("v=1", "t=C", p(10, "Ana"), `s=${S}`, `e=${S + 60}`, "n=Revue"),
+      S + 99,
+    );
+    await page.getByRole("button", { name: "Nouvelle réunion" }).click();
+    expect(new URL(page.url()).search).toBe("?v=1&t=C&p=10|Ana&n=Revue");
+    await expect(page.getByLabel("Titre de la réunion (facultatif)")).toHaveValue("Revue");
+    const length = await page.evaluate(() => history.length);
+    await page.getByLabel("€/heure", { exact: true }).fill("25");
+    await page.getByRole("radio", { name: /Point rapide/u }).check();
+    await page.getByLabel("Titre de la réunion (facultatif)").fill("Rétro");
+    expect(new URL(page.url()).search).toBe("?v=1&t=A&p=25|Ana&n=R%C3%A9tro");
+    expect(await page.evaluate(() => history.length)).toBe(length);
+    await page.goBack();
+    await expect(page.getByRole("button", { name: "Copier le lien du ticket" })).toBeVisible();
+    expect((await query(page)).get("e")).toBe(String(S + 60));
+  });
+
+  test("CL-3 · e dans le futur : ignoré avec message, le compteur tourne", async ({ page }) => {
+    await openAt(page, link("v=1", ...SOLO, `s=${S}`, `e=${S + 3600}`), S + 600);
+    await expect(page.getByRole("button", { name: "Terminer" })).toBeVisible();
+    await expect(notices(page).first()).toContainText(
+      `Heure de fin dans le futur${NBSP}: la réunion continue.`,
+    );
+    expect((await query(page)).has("e")).toBe(false);
+  });
+
+  test("CA-6 · Terminer dans la seconde du lancement : e = s + 1, le lien du ticket reste valide", async ({
+    page,
+  }) => {
+    await openAt(page, BASE, S);
+    await page.getByRole("button", { name: "Lancer le compteur" }).click();
+    await page.getByRole("button", { name: "Terminer" }).click();
+    expect((await query(page)).get("e")).toBe(String(S + 1));
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Copier le lien du ticket" })).toBeVisible();
+  });
+
+  test("CL-8 · l'app refuse une modification qui produirait un lien trop long", async ({
+    page,
+  }) => {
+    // 16 libellés de 40 « é » (6 caractères encodés chacun) + 1 de 13 : environ 4 075 caractères.
+    const people = [
+      ...Array.from({ length: 16 }, () => p(1000, "é".repeat(40))),
+      p(1000, "é".repeat(13)),
+    ];
+    await openAt(page, link("v=1", "t=A", ...people, `s=${S}`), S + 60);
+    const before = page.url();
+    const length = new URL(before).search.length - 1;
+    expect(length).toBeGreaterThan(4096 - 26);
+    expect(length).toBeLessThanOrEqual(4096);
+    // La suggestion suivante (« Cheffe de projet ») ajoute 26 caractères : refusée.
+    await page.getByRole("button", { name: "+ quelqu'un qui n'a rien à faire là" }).click();
+    await expect(page.getByText(/Lien trop long\u00a0: raccourcissez/u)).toBeVisible();
+    await expect(page.getByLabel("Qui", { exact: true })).toHaveCount(17);
+    expect(page.url()).toBe(before);
+  });
+
+  test("#form-error est une région live : l'erreur de saisie est annoncée", async ({ page }) => {
+    await openAt(page, link("v=1", "t=A", p(100, "Ana"), `s=${S}`), S + 60);
+    const error = page.locator("#form-error");
+    await expect(error).toHaveAttribute("aria-live", "polite");
+    await page.getByLabel("Qui", { exact: true }).fill("");
+    await expect(error).toHaveText("Il faut au moins une personne valide autour de la table.");
+  });
+
+  test("longueurs en points de code, sans maxlength : 40 emoji acceptés, 41 caractères refusés", async ({
+    page,
+  }) => {
+    await openAt(page, BASE, S);
+    const who = page.getByLabel("Qui", { exact: true }).first();
+    const title = page.getByLabel("Titre de la réunion (facultatif)");
+    await expect(who).not.toHaveAttribute("maxlength");
+    await expect(title).not.toHaveAttribute("maxlength");
+    await who.fill("🥙".repeat(40));
+    await expect(who).not.toHaveAttribute("aria-invalid");
+    expect((await query(page)).getAll("p")[0]).toBe(`68|${"🥙".repeat(40)}`);
+    await who.fill("x".repeat(41));
+    await expect(who).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByText("Le libellé doit faire de 1 à 40 caractères.")).toBeVisible();
+    await title.fill("🎉".repeat(60));
+    await expect(title).not.toHaveAttribute("aria-invalid");
+    await title.fill("a".repeat(61));
+    await expect(title).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByText("Le titre fait 60 caractères au maximum.")).toBeVisible();
+    await title.fill("🎉".repeat(60));
+    await who.fill("Kevin");
+    await page.getByRole("button", { name: "Lancer le compteur" }).click();
+    expect((await query(page)).get("n")).toBe("🎉".repeat(60));
+  });
+
+  test("libellé invisible dans le lien (U+200B, U+3164, U+2800) : participant ignoré", async ({
+    page,
+  }) => {
+    const invisible = [0x200b, 0x3164, 0x2800].map((code) => String.fromCodePoint(code)).join("");
+    await openAt(page, link("v=1", p(1000, invisible), p(10, "Ana"), `s=${S}`), S + 60);
+    await expect(page.getByLabel("Qui", { exact: true })).toHaveCount(1);
+    await expect(notices(page).first()).toContainText("1 participant illisible a été ignoré.");
+  });
+
+  test("U+061C retiré du titre (bidi)", async ({ page }) => {
+    const alm = String.fromCodePoint(0x061c);
+    await openAt(
+      page,
+      link("v=1", p(10, "Ana"), `s=${S}`, `n=${encodeURIComponent(`${alm}Revue${alm}`)}`),
+      S + 60,
+    );
+    await expect(page.locator("#subtitle")).toHaveText("Revue");
+  });
+
+  test("ticket : les lignes sont construites une fois, seuls les montants changent", async ({
+    page,
+  }) => {
+    await openAt(page, link("v=1", ...SOLO, `s=${S}`), S + 605);
+    const lines = receipt(page).locator("#receipt-lines");
+    await lines.evaluate((element) => {
+      // Marque posée sur les nœuds actuels : elle disparaîtrait s'ils étaient recréés.
+      for (const child of element.querySelectorAll("dt, dd")) child.setAttribute("data-mark", "1");
+    });
+    const before = await lines.locator("dd").allTextContents();
+    await page.clock.runFor(3000);
+    await expect(digits(page)).toHaveText(euros(608, 354));
+    const after = await lines.locator("dd").allTextContents();
+    expect(after).not.toEqual(before);
+    expect(await lines.locator("dt:not([data-mark]), dd:not([data-mark])").count()).toBe(0);
+  });
+
+  test("Doto pour tous les chiffres hors ticket : montant, durée, personnes, €/heure, taux", async ({
+    page,
+  }) => {
+    const family = (selector: string) =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((element) => getComputedStyle(element).fontFamily);
+    await openAt(page, link("v=1", ...SOLO, `s=${S}`), S + 605);
+    for (const selector of ["#amount", "#clock", "#count", "#hourly", "input.rate-input"]) {
+      expect(await family(selector), selector).toMatch(/^"?Doto/u);
+    }
+    expect(await family("#receipt-total")).toMatch(/JetBrains Mono/u);
+    await openAt(page, BASE, S);
+    expect(await family("#hourly-preview")).toMatch(/^"?Doto/u);
+  });
+
+  test("afficheur : « € » avant le montant, milliers en U+00A0", async ({ page }) => {
+    await openAt(page, link("v=1", "t=A", p(1000, "Board"), `s=${S}`), S + 5 * 3600 + 1800);
+    expect(normalizeSpaces(await timer(page).innerText()).replace(/\s+/gu, " ")).toBe("€ 5 500,00");
+    await expect(digits(page)).toHaveText(`5${NBSP}500,00`);
+    await expect(page.locator("#hourly")).toHaveText(`1${NBSP}000${NBSP}€`);
   });
 });

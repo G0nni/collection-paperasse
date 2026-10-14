@@ -246,7 +246,7 @@ describe("parseLink · s", () => {
 
 describe("parseLink · e", () => {
   it("e = s + 24 h : accepté", () => {
-    const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${S + 86_400}`), NOW_MS);
+    const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${S + 86_400}`), (S + 86_400) * 1000);
     expect(parsed.screen).toBe("ticket");
   });
 
@@ -261,6 +261,21 @@ describe("parseLink · e", () => {
     expect(parsed.screen).toBe("meter");
     expect(parsed.meeting.end).toBeNull();
     expect(parsed.notices.map((n) => n.code)).toEqual(["bad-end"]);
+  });
+
+  it("CL-3 · e plus de 60 s dans le futur : ignoré, Compteur + message", () => {
+    const now = S + 600;
+    const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${now + 61}`), now * 1000);
+    expect(parsed.screen).toBe("meter");
+    expect(parsed.meeting.end).toBeNull();
+    expect(parsed.notices.map((n) => n.code)).toEqual(["future-end"]);
+  });
+
+  it("e = maintenant + 60 s : toléré (horloges décalées), Ticket", () => {
+    const now = S + 600;
+    const parsed = parseLink(query("v=1", ONE, `s=${S}`, `e=${now + 60}`), now * 1000);
+    expect(parsed.screen).toBe("ticket");
+    expect(parsed.notices).toEqual([]);
   });
 
   it("e sans s valide : ignoré sans message propre", () => {
@@ -319,6 +334,63 @@ describe("parseLink · taille", () => {
   });
 });
 
+describe("parseLink · forme propre du lien", () => {
+  it("lien ignoré en entier : forme propre vide (aucune query)", () => {
+    expect(parseLink("", NOW_MS).query).toBe("");
+    expect(parseLink("?utm_source=chat", NOW_MS).query).toBe("");
+    expect(parseLink(query("v=2", ONE, `s=${S}`), NOW_MS).query).toBe("");
+    expect(parseLink(`?v=1&${ONE}&n=${"a".repeat(4096)}`, NOW_MS).query).toBe("");
+  });
+
+  it("l'exemple de la spec est déjà propre", () => {
+    expect(parseLink(SPEC_EXAMPLE, NOW_MS).query).toBe(SPEC_EXAMPLE);
+  });
+
+  it("retire paramètres inconnus, doublons et participants invalides, remet l'ordre", () => {
+    const messy = query(
+      "utm_source=chat",
+      "n=Revue",
+      "n=Autre",
+      "p=12.5|Décimal",
+      "t=C",
+      "t=A",
+      "p=48|Kevin%20du%20marketing",
+      "v=1",
+      `s=${S}`,
+      `s=${S + 9}`,
+      "x=%3Cscript%3E",
+    );
+    expect(parseLink(messy, NOW_MS).query).toBe(
+      `?v=1&t=C&p=48|Kevin%20du%20marketing&s=${S}&n=Revue`,
+    );
+  });
+
+  it("retire un s refusé (Configuration) et un e refusé (Compteur)", () => {
+    expect(parseLink(query("v=1", "t=A", ONE, `s=${S + 99_999}`), NOW_MS).query).toBe(
+      "?v=1&t=A&p=50|Kevin",
+    );
+    expect(parseLink(query("v=1", "t=A", ONE, `s=${S}`, `e=${S}`), NOW_MS).query).toBe(
+      `?v=1&t=A&p=50|Kevin&s=${S}`,
+    );
+  });
+
+  it("libellés nettoyés : la forme propre ne garde ni bidi ni contrôle", () => {
+    const rlo = encodeURIComponent(String.fromCodePoint(0x202e));
+    expect(parseLink(query("v=1", "t=A", `p=5|Ke${rlo}vin%00`), NOW_MS).query).toBe(
+      "?v=1&t=A&p=5|Kevin",
+    );
+  });
+
+  it("la forme propre se relit à l'identique, sans message", () => {
+    const messy = query("t=Z", "v=1", "p=1e3|x", ONE, "p=7|Quelqu'un", `s=${S}`, "n=%20Revue%20");
+    const first = parseLink(messy, NOW_MS);
+    const second = parseLink(first.query, NOW_MS);
+    expect(second.query).toBe(first.query);
+    expect(second.meeting).toEqual(first.meeting);
+    expect(second.notices).toEqual([]);
+  });
+});
+
 describe("buildQuery", () => {
   const meeting: Meeting = {
     tariff: "B",
@@ -340,7 +412,8 @@ describe("buildQuery", () => {
     expect(buildQuery({ ...meeting, end: S + 60, title: "" })).toBe(
       "?v=1&t=B&p=68|Cheffe%20de%20projet&p=48|Kevin%20du%20marketing&p=6|Stagiaire&s=1760425200&e=1760425260",
     );
-    expect(buildQuery({ ...meeting, start: null, end: S })).toBe(
+    // Une fin sans début n'existe pas (le type Meeting l'interdit).
+    expect(buildQuery({ ...meeting, start: null, end: null })).toBe(
       "?v=1&t=B&p=68|Cheffe%20de%20projet&p=48|Kevin%20du%20marketing&p=6|Stagiaire&n=Point%20rapide",
     );
   });
@@ -356,11 +429,25 @@ describe("buildQuery", () => {
       ],
       title: "Revue & co · 100 % utile ?",
       start: S,
-      end: S + 3600,
+      end: S + 2400,
     };
     const parsed = parseLink(buildQuery(tricky), NOW_MS);
     expect(parsed.notices).toEqual([]);
     expect(parsed.meeting).toEqual(tricky);
+  });
+
+  it("écrit exactement ce que le navigateur relira dans location.search (« ' » encodé)", () => {
+    const tricky: Meeting = {
+      ...meeting,
+      participants: [
+        { rate: 80, label: "Quelqu'un du juridique, au cas où" },
+        { rate: 1, label: "A | B & C = D + E # F % G ? H ! ~ * ( ) é 🙂" },
+      ],
+      title: "L'ordre du jour, c'est quoi ?",
+    };
+    const written = buildQuery(tricky);
+    expect(written).not.toContain("'");
+    expect(new URL(written, "https://g0nni.github.io/collection-paperasse/").search).toBe(written);
   });
 
   it("CL-8 · fitsInLink : vrai pour une réunion normale, faux au-delà de 4 Ko", () => {

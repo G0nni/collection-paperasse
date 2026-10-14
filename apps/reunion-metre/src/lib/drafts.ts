@@ -2,7 +2,8 @@
 // seules les lignes valides entrent dans la réunion, donc dans le lien (CA-5).
 import { sanitizeText } from "@paperasse/shared/text";
 import { parseStrictInt } from "@paperasse/shared/url";
-import { LIMITS, ROLES, type Participant, type Role } from "./meeting";
+import { fitsInLink } from "./link";
+import { LIMITS, ROLES, type Meeting, type Participant, type Role } from "./meeting";
 
 export type DraftRow = { readonly id: number; readonly label: string; readonly rate: string };
 
@@ -36,7 +37,7 @@ export function suggestedRate(label: string): number | null {
 /** Prochaine personne ajoutée : la première suggestion pas encore à table, sinon on recycle. */
 export function nextSuggestion(labels: readonly string[]): Role {
   const unused = ROLES.find((role) => !labels.includes(role.label));
-  return unused ?? ROLES[labels.length % ROLES.length] ?? { label: "Patrick", rate: 55 };
+  return unused ?? ROLES[labels.length % ROLES.length] ?? ROLES[0];
 }
 
 /**
@@ -56,4 +57,23 @@ export function rowsFrom(participants: readonly Participant[], firstId = 1): Dra
     label: participant.label,
     rate: String(participant.rate),
   }));
+}
+
+export type ProposalError = "no-valid-people" | "link-too-long";
+
+export type Proposal =
+  | { readonly ok: true; readonly meeting: Meeting }
+  | { readonly ok: false; readonly error: ProposalError };
+
+/**
+ * La réunion que donnerait le formulaire : `base` avec, pour participants, les lignes valides.
+ * Refusée s'il ne reste aucun participant valide, ou si le lien dépasserait 4 Ko (CL-8) : dans
+ * les deux cas la réunion, donc le lien, ne change pas.
+ */
+export function proposeMeeting(base: Meeting, rows: readonly DraftRow[]): Proposal {
+  const participants = validParticipants(rows.map(checkRow));
+  if (participants.length === 0) return { ok: false, error: "no-valid-people" };
+  const meeting = { ...base, participants };
+  if (!fitsInLink(meeting)) return { ok: false, error: "link-too-long" };
+  return { ok: true, meeting };
 }

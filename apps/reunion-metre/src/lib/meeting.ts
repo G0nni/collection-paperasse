@@ -51,7 +51,7 @@ export type Role = { readonly label: string; readonly rate: number };
  * Suggestions du formulaire (un `<datalist>`). Jamais référencées dans l'URL : un participant
  * choisi depuis cette liste y est écrit en clair, libellé et taux.
  */
-export const ROLES: readonly Role[] = [
+export const ROLES: readonly [Role, ...Role[]] = [
   { label: "Cheffe de projet", rate: 68 },
   { label: "Dev qui code sous la table", rate: 48 },
   { label: `Responsable «${NBSP}transverse${NBSP}»`, rate: 72 },
@@ -63,16 +63,23 @@ export const ROLES: readonly Role[] = [
   { label: "Patrick", rate: 55 },
 ];
 
-export type Meeting = {
+type MeetingDetails = {
   readonly tariff: TariffCode;
   readonly participants: readonly Participant[];
   /** `n` : titre libre, déjà nettoyé. Chaîne vide si absent. */
   readonly title: string;
-  /** `s` : début, timestamp Unix en secondes. `null` tant que la réunion n'est pas lancée. */
-  readonly start: number | null;
-  /** `e` : fin, timestamp Unix en secondes. `null` tant que la réunion tourne. */
-  readonly end: number | null;
 };
+
+/**
+ * Une réunion. `s` (début, timestamp Unix en secondes) est `null` tant qu'elle n'est pas
+ * lancée ; `e` (fin) est `null` tant qu'elle tourne. Une fin sans début n'existe pas : le type
+ * l'interdit, comme le format d'URL.
+ */
+export type Meeting = MeetingDetails &
+  (
+    | { readonly start: null; readonly end: null }
+    | { readonly start: number; readonly end: number | null }
+  );
 
 export type Screen = "setup" | "meter" | "ticket";
 

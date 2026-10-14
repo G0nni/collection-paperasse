@@ -26,6 +26,8 @@ export type NoticeCode =
   | "bad-start"
   /** `e` illisible ou hors de ]s, s + 24 h] (CL-3). */
   | "bad-end"
+  /** `e` plus de 60 s dans le futur (CL-3) : un ticket ne se termine pas à l'avance. */
+  | "future-end"
   /** `t` hors liste blanche : tarif A. */
   | "bad-tariff"
   /** `n` trop long après nettoyage. */
@@ -43,6 +45,12 @@ export type ParsedLink = {
   readonly meeting: Meeting;
   readonly screen: Screen;
   readonly notices: readonly Notice[];
+  /**
+   * Forme propre du lien, à remettre dans la barre d'adresse (spec, « Écrans ») : paramètres
+   * inconnus, doublons et participants invalides retirés. Chaîne vide quand le lien est ignoré
+   * en entier (aucun paramètre du format, version inconnue, trop long).
+   */
+  readonly query: string;
 };
 
 /** Paramètres du format. Un lien qui n'en porte aucun est une Configuration vierge (CA-1). */
@@ -50,7 +58,7 @@ const KNOWN_PARAMS = ["v", "t", "p", "s", "e", "n"] as const;
 
 const notice = (code: NoticeCode, count = 1): Notice => ({ code, count });
 
-/** Query brute, sans le « ? » de tête. */
+/** Query brute (encodée, jamais décodée ici), sans le « ? » de tête. */
 function rawQuery(search: string): string {
   return search.startsWith("?") ? search.slice(1) : search;
 }
@@ -100,13 +108,36 @@ function readStart(raw: string | null, nowSeconds: number): number | NoticeCode 
 }
 
 /**
+ * Fin de réunion lue dans `e`, ou `null` (ignorée) avec la raison dans `notices` : hors de
+ * ]s, s + 24 h], ou plus de 60 s dans le futur (CL-3).
+ */
+function readEnd(
+  raw: string | null,
+  start: number,
+  nowSeconds: number,
+  notices: Notice[],
+): number | null {
+  if (raw === null) return null;
+  const end = parseStrictInt(raw, start + 1, start + LIMITS.maxDuration);
+  if (end === null) {
+    notices.push(notice("bad-end"));
+    return null;
+  }
+  if (end > nowSeconds + LIMITS.futureTolerance) {
+    notices.push(notice("future-end"));
+    return null;
+  }
+  return end;
+}
+
+/**
  * Lit un lien. `search` est `location.search` ; `nowMs` l'heure de l'appareil en millisecondes
  * (passée en paramètre pour rester testable).
  */
 export function parseLink(search: string, nowMs: number): ParsedLink {
   const raw = rawQuery(search);
-  const blank = { meeting: defaultMeeting(), screen: "setup" as const };
-  // Borné avant tout décodage (CL-8).
+  const blank = { meeting: defaultMeeting(), screen: "setup" as const, query: "" };
+  // Borné sur la query brute, avant tout décodage (CL-8, CLAUDE.md).
   if (isPayloadTooLong(raw)) {
     return { ...blank, notices: [notice("too-long")] };
   }
@@ -139,7 +170,7 @@ export function parseLink(search: string, nowMs: number): ParsedLink {
       start: null,
       end: null,
     };
-    return { meeting, screen: "setup", notices };
+    return { meeting, screen: "setup", notices, query: buildQuery(meeting) };
   }
   if (ignored > 0) notices.push(notice("ignored-participants", ignored));
 
@@ -148,15 +179,26 @@ export function parseLink(search: string, nowMs: number): ParsedLink {
   if (typeof start === "string") notices.push(notice(start));
   const validStart = typeof start === "number" ? start : null;
 
-  let end: number | null = null;
-  const rawEnd = firstParam(params, "e");
-  if (validStart !== null && rawEnd !== null) {
-    end = parseStrictInt(rawEnd, validStart + 1, validStart + LIMITS.maxDuration);
-    if (end === null) notices.push(notice("bad-end"));
-  }
+  const meeting: Meeting =
+    validStart === null
+      ? { ...base, participants, start: null, end: null }
+      : {
+          ...base,
+          participants,
+          start: validStart,
+          end: readEnd(firstParam(params, "e"), validStart, nowSeconds, notices),
+        };
+  return { meeting, screen: screenOf(meeting), notices, query: buildQuery(meeting) };
+}
 
-  const meeting: Meeting = { ...base, participants, start: validStart, end };
-  return { meeting, screen: screenOf(meeting), notices };
+/**
+ * Encode un texte libre pour la query. `'` est encodé en plus d'`encodeURIComponent` : le
+ * navigateur l'encode de toute façon dans la query d'une URL http(s) (WHATWG, « special-query
+ * percent-encode set »). Ce qu'on écrit est donc exactement ce que `location.search` relira, et
+ * la mesure des 4 Ko (CL-8) porte sur la vraie longueur du lien.
+ */
+function encodeText(text: string): string {
+  return encodeURIComponent(text).replaceAll("'", "%27");
 }
 
 /**
@@ -169,14 +211,14 @@ export function buildQuery(meeting: Meeting): string {
     "v=1",
     `t=${meeting.tariff}`,
     ...meeting.participants.map(
-      (participant) => `p=${participant.rate}|${encodeURIComponent(participant.label)}`,
+      (participant) => `p=${participant.rate}|${encodeText(participant.label)}`,
     ),
   ];
   if (meeting.start !== null) {
     parts.push(`s=${meeting.start}`);
     if (meeting.end !== null) parts.push(`e=${meeting.end}`);
   }
-  if (meeting.title !== "") parts.push(`n=${encodeURIComponent(meeting.title)}`);
+  if (meeting.title !== "") parts.push(`n=${encodeText(meeting.title)}`);
   return `?${parts.join("&")}`;
 }
 

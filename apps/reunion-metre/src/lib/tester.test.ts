@@ -180,7 +180,8 @@ describe("Lien · tester", () => {
     const next = random(2026);
     for (let draw = 0; draw < 2000; draw += 1) {
       const count = 1 + Math.floor(next() * 6);
-      const start = NOW - Math.floor(next() * 1000);
+      // Fin toujours passée : un e plus de 60 s dans le futur est ignoré (spec, CL-3).
+      const start = NOW - 3601 - Math.floor(next() * 1000);
       const meeting: Meeting = {
         tariff: TARIFF_CODES[Math.floor(next() * 3)] ?? "A",
         participants: Array.from({ length: count }, () => ({

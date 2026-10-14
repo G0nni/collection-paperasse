@@ -3,6 +3,7 @@
 // de tiret cadratin (CLAUDE.md).
 import { NBSP } from "@paperasse/shared/typography";
 import { LIMITS } from "./meeting";
+import type { ProposalError } from "./drafts";
 import type { Notice } from "./link";
 
 export const TEXT = {
@@ -53,6 +54,8 @@ export const TEXT = {
   copied: "Lien copié. Collez-le dans le chat de la réunion.",
   copyRefused: `Le navigateur refuse la copie${NBSP}: le lien est sélectionné ci-dessous, copiez-le à la main.`,
   linkField: "Lien à copier",
+  dismiss: "Fermer",
+  dismissContext: "les messages du lien",
 
   labelError: `Le libellé doit faire de ${LIMITS.labelMin} à ${LIMITS.labelMax} caractères.`,
   rateError: `Le taux doit être un nombre entier de ${LIMITS.minRate} à ${LIMITS.maxRate}.`,
@@ -95,6 +98,8 @@ export function noticeText(notice: Notice): string {
       return `Heure de début illisible${NBSP}: la réunion n'est pas lancée.`;
     case "bad-end":
       return `Heure de fin illisible${NBSP}: la réunion continue.`;
+    case "future-end":
+      return `Heure de fin dans le futur${NBSP}: la réunion continue.`;
     case "bad-tariff":
       return `Tarif inconnu${NBSP}: tarif A appliqué.`;
     case "bad-title":
@@ -107,5 +112,15 @@ export function noticeText(notice: Notice): string {
         : "1 participant illisible a été ignoré.";
     case "no-participants":
       return "Aucun participant lisible dans le lien. Voici la configuration.";
+  }
+}
+
+/** Pourquoi une modification du formulaire n'entre pas dans la réunion (donc dans le lien). */
+export function proposalErrorText(error: ProposalError): string {
+  switch (error) {
+    case "no-valid-people":
+      return TEXT.noValidPeople;
+    case "link-too-long":
+      return TEXT.linkTooLong;
   }
 }

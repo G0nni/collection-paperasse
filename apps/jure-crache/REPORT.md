@@ -17,7 +17,14 @@ Tour 3 : numéro sur 128 bits en base32 Crockford (200 000 empreintes contre un 
 indépendant, sans écart ni biais), « 1er », pied en marge limité aux pages de l'acte, échéance
 discriminée, `pdf.ts` durci, `trapFocus` dans le copieur partagé (testé sur les deux looks).
 
+Après ouverture de la PR, la CI (Chromium 156, contre 141 en local) a trouvé deux vrais défauts,
+corrigés : texte circulaire du sceau qui dépassait son cercle (« SÉRIEUX » coupé, réglé par
+`textLength`) et nom de 40 emoji coupé à l'impression à côté du tampon (plafond passé à 5 lignes).
+CI verte.
+
 Restent ouverts (non bloquants) :
+- Test de focus du repli de copie (`tester-tour3.spec.ts:807`) vu une fois en échec sous charge
+  en local, stable sur 10 répétitions.
 - `seal.ts:97` utilise un lookbehind dans une regex (Safari < 16.4 : module entier en panne) ;
   correction en une ligne proposée par le reviewer.
 - Règle `white-space: normal` inutile et commentaire inexact sur les `<wbr>` (`index.astro:940`).

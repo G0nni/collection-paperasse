@@ -137,7 +137,7 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
   juger).
 - Les dates sont affichées dans le fuseau de l'appareil qui regarde, en `fr-FR`.
 - Décisions de l'orchestrateur après le tour 1 (à confirmer) : « Verdict déclaré » sans date ;
-  numéro sur 64 bits ; 4 Ko en unités UTF-16 ; impression bornée à une page avec pied répété ;
+  numéro élargi (64 bits, puis 128 bits au tour 2) ; 4 Ko en unités UTF-16 ; impression bornée à une page avec pied répété ;
   forme propre réécrite (`replaceState`) sauf lien illisible ou de version inconnue ; Rédaction
   vide avec échéance proposée à J+7, 20 h, et les 3 articles par défaut ; boutons « Nouvel acte »
   et « Modifier le verdict » ; année du numéro en UTC (même numéro dans tous les fuseaux).

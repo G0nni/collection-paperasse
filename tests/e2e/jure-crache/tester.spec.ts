@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { gzipSync } from "node:zlib";
 import type * as LZStringModule from "../../../apps/jure-crache/node_modules/lz-string";
 import { contrastFailures, snapshotTextNodes } from "../support/contrast";
+import { countIgnoringSpaces, pdfPageTexts } from "../support/pdf";
 import { normalizeSpaces, perceivedTexts, typographyIssues } from "../support/text";
 
 // lz-string du look lui-même (même version que le site), chargé sans passer par son code :
@@ -1990,5 +1991,633 @@ test.describe("Écrans de la spec · axe, typographie, cibles, contraste", () =>
       const text = await page.locator("body").innerText();
       expect(text.includes(String.fromCodePoint(0x2014)), hash).toBe(false);
     }
+  });
+});
+
+// ==============================================================================================
+// Tour 2 (agent tester) : spec mise à jour après le tour 1. Écran 3 « Verdict déclaré », numéro
+// sur 64 bits, 4 Ko en unités UTF-16 (acte d'emoji), CA-6 par construction (plafonds, pied en
+// marge @page, pas de page blanche), CL-6 imprimé, « lien trop long » relié au champ, heure
+// inexistante au passage à l'heure d'été, « Nouvel acte » absent des écrans de refus.
+// ==============================================================================================
+
+/** Largeur imprimable d'une page A4 (210 mm moins 2 × 10 mm de marge @page), en px CSS. */
+const PDF_ONLY_DESKTOP = "le PDF ne dépend pas de la fenêtre";
+const A4_TEXT_WIDTH = Math.floor(((210 - 20) / 25.4) * 96);
+
+/** Emoji d'un point de code (les plus larges) mêlés de séquences ZWJ et de drapeaux. */
+const EMOJI = [
+  "🎉",
+  "😂",
+  "🍕",
+  "🚆",
+  "⏰",
+  "🥙",
+  "🤝",
+  "🏆",
+  "😤",
+  "🙏",
+  "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}",
+  "🇫🇷",
+];
+function emoji(length: number, seed: number): string {
+  const out: string[] = [];
+  for (let index = seed; out.length < length; index += 5) {
+    const next = Array.from(EMOJI[index % EMOJI.length] ?? "🎉");
+    out.push(...(out.length + next.length <= length ? next : ["🎉"]));
+  }
+  return out.join("");
+}
+/** Acte d'emoji aux bornes : 1200 points de code, plus de 4 Ko en UTF-8, ~2 300 unités UTF-16. */
+const EMOJI_AT_BOUNDS: DeedJson = {
+  p: emoji(40, 1),
+  c: emoji(40, 2),
+  o: emoji(200, 3),
+  e: emoji(120, 4),
+  a: [5, 6, 7, 8, 9].map((seed) => emoji(160, seed)),
+  d: BASE.d,
+  t: BASE.t,
+};
+
+/**
+ * Même acte en emoji d'un seul point de code (les glyphes d'emoji les plus larges), pour lire le
+ * PDF : Chromium y écrit un drapeau (2 points de code, 1 glyphe) sous un code privé, ce qui
+ * rendrait l'oracle aveugle (limite du PDF, pas du look).
+ */
+const WIDE_EMOJI = ["🎉", "😂", "🍕", "🚆", "⏰", "🥙", "🤝", "🏆", "😤", "🙏"];
+function wideEmoji(length: number, seed: number): string {
+  return Array.from(
+    { length },
+    (_, index) => WIDE_EMOJI[(index * 3 + seed) % WIDE_EMOJI.length],
+  ).join("");
+}
+const WIDE_EMOJI_AT_BOUNDS: DeedJson = {
+  p: wideEmoji(40, 1),
+  c: wideEmoji(40, 2),
+  o: wideEmoji(200, 3),
+  e: wideEmoji(120, 4),
+  a: [5, 6, 7, 8, 9].map((seed) => wideEmoji(160, seed)),
+  d: BASE.d,
+  t: BASE.t,
+};
+
+/** U+FDFD aux bornes : le lien le plus « large » que le schéma accepte (forgé). */
+const FDFD = String.fromCodePoint(0xfdfd);
+const FORGED_WIDE: DeedJson = {
+  p: FDFD.repeat(40),
+  c: `x${FDFD.repeat(39)}`,
+  o: FDFD.repeat(200),
+  e: FDFD.repeat(120),
+  a: [0, 1, 2, 3, 4].map(() => FDFD.repeat(160)),
+  d: BASE.d,
+  t: BASE.t,
+};
+
+async function printedPdf(page: Page): Promise<Buffer> {
+  await page.evaluate(() => document.fonts.ready);
+  return page.pdf({ format: "A4", preferCSSPageSize: true, printBackground: true });
+}
+
+/** Oracle indépendant du nombre de pages : objets « /Type /Page » du PDF. */
+function pageObjects(pdf: Buffer): number {
+  return (pdf.toString("latin1").match(/\/Type\s*\/Page(?![s\w])/gu) ?? []).length;
+}
+
+function freeTexts(deed: DeedJson): string[] {
+  return [deed.p, deed.c, deed.o, deed.e, ...deed.a];
+}
+
+/** Sans crypto.subtle (contexte non sécurisé, CL-6). */
+async function withoutSubtle(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, "subtle", { configurable: true, get: () => undefined });
+  });
+}
+
+/** L'acte vu comme sur papier : média print, largeur imprimable A4. */
+async function asPrinted(page: Page) {
+  await page.setViewportSize({ width: A4_TEXT_WIDTH, height: 1100 });
+  await page.emulateMedia({ media: "print" });
+  await page.evaluate(() => document.fonts.ready);
+}
+
+test.describe("Tour 2 · CA-6 · une page A4 par construction", () => {
+  // Les 3 échecs du tour 1 : une page, le pied deux fois sur cette page (fin de l'acte + marge
+  // @page), le numéro une fois.
+  const TOUR1_FAILURES = [
+    ["idéogrammes aux bornes", LONGEST_CJK, ""],
+    ["idéogrammes aux bornes, jugé match nul", LONGEST_CJK, ".n"],
+    ["U+FDFD forgé aux bornes", FORGED_WIDE, ""],
+  ] as const;
+  for (const [label, deed, suffix] of TOUR1_FAILURES) {
+    test(`CA-6 · ${label} : une seule page, pied d'acte dans l'acte et dans la marge, numéro présent`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", PDF_ONLY_DESKTOP);
+      await openDeed(page, hashOf(deed, suffix));
+      const pdf = await printedPdf(page);
+      const pages = pdfPageTexts(pdf);
+      expect(pageObjects(pdf)).toBe(1);
+      expect(pages).toHaveLength(1);
+      const [text = ""] = pages;
+      expect(countIgnoringSpaces(text, FOOTER)).toBe(2);
+      expect(countIgnoringSpaces(text, expectedNumber(deed))).toBe(1);
+      expect(countIgnoringSpaces(text, "Acte de pari")).toBeGreaterThanOrEqual(1);
+    });
+  }
+
+  test("CA-6 · l'oracle du PDF voit la coupure : un lien forgé en U+FDFD n'imprime pas ses 1 199 glyphes", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", PDF_ONLY_DESKTOP);
+    // Témoin : prouve que le PDF ne contient que ce qui est visible (sinon le test suivant,
+    // « idéogrammes imprimés en entier », ne prouverait rien).
+    await openDeed(page, hashOf(FORGED_WIDE));
+    const [text = ""] = pdfPageTexts(await printedPdf(page));
+    const printed = Array.from(text).filter((char) => char === FDFD).length;
+    expect(printed).toBeGreaterThan(0);
+    expect(printed).toBeLessThan(freeTexts(FORGED_WIDE).join("").length);
+  });
+
+  for (const [label, deed, suffix, unsealed] of [
+    ["idéogrammes aux bornes", LONGEST_CJK, "", false],
+    ["idéogrammes aux bornes, VAINQUEUR", LONGEST_CJK, ".p", false],
+    ["idéogrammes aux bornes, non scellé, VAINQUEUR", LONGEST_CJK, ".p", true],
+    ["idéogrammes aux bornes, non scellé, match nul", LONGEST_CJK, ".n", true],
+    ["prose aux bornes, non scellé, VAINQUEUR", LONGEST_PROSE, ".c", true],
+    ["emoji aux bornes", WIDE_EMOJI_AT_BOUNDS, "", false],
+    ["emoji aux bornes, non scellé, VAINQUEUR", WIDE_EMOJI_AT_BOUNDS, ".p", true],
+  ] as const) {
+    test(`CA-6 · ${label} : une page, chaque texte libre imprimé en entier`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", PDF_ONLY_DESKTOP);
+      if (unsealed) await withoutSubtle(page);
+      await openDeed(page, hashOf(deed, suffix));
+      const pdf = await printedPdf(page);
+      expect(pageObjects(pdf)).toBe(1);
+      const [text = ""] = pdfPageTexts(pdf);
+      const missing = freeTexts(deed)
+        .map((value, index) => ({ index, found: countIgnoringSpaces(text, value) }))
+        .filter(({ found }) => found === 0)
+        .map(({ index }) => `texte libre n° ${index + 1} incomplet sur le papier`);
+      expect(missing).toEqual([]);
+      expect(countIgnoringSpaces(text, FOOTER)).toBe(2);
+    });
+
+    test(`CA-6 · ${label} : rien de coupé ni de recouvert dans la mise en page imprimée`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "largeur A4 imposée par le test");
+      if (unsealed) await withoutSubtle(page);
+      await openDeed(page, hashOf(deed, suffix));
+      await asPrinted(page);
+      expect(await deedArticle(page).evaluate(layoutProblems)).toEqual([]);
+    });
+  }
+});
+
+test.describe("Tour 2 · CL-6 · non scellé, imprimé", () => {
+  test("CL-6 · sur papier, « N° NON-SCELLÉ » est accompagné de son explication, sur une page", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+    await withoutSubtle(page);
+    await openDeed(page, hashOf(BASE));
+    await expect(deedNumber(page)).toHaveText(exactText("N° NON-SCELLÉ"));
+    await page.emulateMedia({ media: "print" });
+    const explanation = page.getByText(/Numéro non scellé/u);
+    await expect(explanation).toBeVisible();
+    await expect(explanation).toContainText(/empreinte/u);
+    await expect(explanation).toContainText(/ne prouve rien/u);
+    const pdf = await printedPdf(page);
+    expect(pageObjects(pdf)).toBe(1);
+    const [text = ""] = pdfPageTexts(pdf);
+    expect(countIgnoringSpaces(text, "N° NON-SCELLÉ")).toBe(1);
+    expect(countIgnoringSpaces(text, "Numéro non scellé")).toBe(1);
+    expect(countIgnoringSpaces(text, "ne prouve rien")).toBe(1);
+  });
+
+  test("CL-6 · le bandeau imprimé reste lisible : contraste ≥ 4.5:1 en média print", async ({
+    page,
+  }) => {
+    await withoutSubtle(page);
+    await openDeed(page, hashOf(BASE));
+    await page.emulateMedia({ media: "print" });
+    const failures = contrastFailures(
+      await page.getByText(/Numéro non scellé/u).evaluate(snapshotTextNodes),
+    );
+    expect(failures).toEqual([]);
+  });
+});
+
+test.describe("Tour 2 · Écran 3 · « Verdict déclaré. Échéance du pari : <date> »", () => {
+  const MONTHS =
+    "janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre";
+  const DATE = new RegExp(`\\b(?:1er|\\d{1,2})\\s(?:${MONTHS})\\s\\d{4}\\b`, "gu");
+
+  async function datesIn(locator: Locator): Promise<string[]> {
+    return [...normalizeSpaces((await locator.innerText()) ?? "").matchAll(DATE)].map(
+      (match) => match[0],
+    );
+  }
+
+  for (const suffix of [".p", ".c", ".n"] as const) {
+    test(`Écran 3 · ${suffix} : la ligne dit exactement « Verdict déclaré. Échéance du pari : 17 octobre 2026 »`, async ({
+      page,
+    }) => {
+      await openDeed(page, hashOf(BASE, suffix));
+      const line = deedArticle(page).getByText(JUDGED_LINE);
+      await expect(line).toHaveText(
+        exactText("Verdict déclaré. Échéance du pari : 17 octobre 2026."),
+      );
+    });
+  }
+
+  test("Écran 3 · ouvert un mois après l'échéance : aucune date de verdict, seules la rédaction et l'échéance", async ({
+    page,
+  }) => {
+    const later = NOW_MS + 30 * DAY;
+    await openDeed(page, hashOf(BASE, ".p"), later);
+    await expect(deedArticle(page).getByText(JUDGED_LINE)).toBeVisible();
+    const dates = new Set(await datesIn(deedArticle(page)));
+    expect([...dates].sort()).toEqual(["14 octobre 2026", "17 octobre 2026"].sort());
+    // La date du jour (13 novembre 2026) n'apparaît nulle part.
+    expect(normalizeSpaces(await page.locator("body").innerText())).not.toContain(
+      "13 novembre 2026",
+    );
+    await expect(page.getByText(/Jugé le/u)).toHaveCount(0);
+  });
+
+  test("Écran 3 · verdict déclaré dans la boîte : même ligne, pas de date du jour", async ({
+    page,
+  }) => {
+    const later = NOW_MS + 10 * DAY;
+    await openDeed(page, hashOf(BASE), later);
+    await declareButton(page).click();
+    await verdictDialog(page)
+      .getByRole("button", { name: /Match nul/u })
+      .click();
+    await expect(deedArticle(page).getByText(JUDGED_LINE)).toHaveText(
+      exactText("Verdict déclaré. Échéance du pari : 17 octobre 2026."),
+    );
+    expect(normalizeSpaces(await page.locator("body").innerText())).not.toContain(
+      "24 octobre 2026",
+    );
+  });
+
+  test.describe("à Auckland", () => {
+    test.use({ timezoneId: "Pacific/Auckland" });
+    test("Écran 3 · l'échéance du 17 à 20 h (Paris) s'affiche le 18 octobre dans le fuseau de l'appareil", async ({
+      page,
+    }) => {
+      const deed = deedWith({ d: Date.UTC(2026, 9, 17, 18, 0) });
+      await openDeed(page, hashOf(deed, ".c"));
+      await expect(deedArticle(page).getByText(JUDGED_LINE)).toHaveText(
+        exactText("Verdict déclaré. Échéance du pari : 18 octobre 2026."),
+      );
+      await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(deed)));
+    });
+  });
+});
+
+test.describe("Tour 2 · CA-3 · numéro sur 64 bits, année UTC", () => {
+  test("CA-3 · rédigé le 31 décembre à 23 h 30 UTC, lu à Paris le 1er janvier : N° 2026-…", async ({
+    page,
+  }) => {
+    const deed = deedWith({ t: Date.UTC(2026, 11, 31, 23, 30), d: Date.UTC(2027, 0, 10) });
+    await openDeed(page, hashOf(deed), Date.UTC(2027, 0, 1, 1, 0));
+    await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(deed)));
+    expect(expectedNumber(deed)).toMatch(/^N° 2026(?:-[0-9A-F]{4}){4}$/u);
+  });
+
+  test.describe("à Kiritimati (UTC+14)", () => {
+    test.use({ timezoneId: "Pacific/Kiritimati" });
+    test("CA-3 · même lien, même numéro qu'à Paris (année UTC de t)", async ({ page }) => {
+      const deed = deedWith({ t: Date.UTC(2026, 11, 31, 23, 30), d: Date.UTC(2027, 0, 10) });
+      await openDeed(page, hashOf(deed), Date.UTC(2027, 0, 1, 1, 0));
+      await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(deed)));
+    });
+  });
+});
+
+test.describe("Tour 2 · acte d'emoji aux bornes", () => {
+  test("Format d'URL · lien d'un acte d'emoji aux bornes (plus de 4 Ko en UTF-8) : acte affiché, numéro conforme", async ({
+    page,
+  }) => {
+    expect(Buffer.byteLength(canonical(EMOJI_AT_BOUNDS))).toBeGreaterThan(4096);
+    await openDeed(page, hashOf(EMOJI_AT_BOUNDS));
+    await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(EMOJI_AT_BOUNDS)));
+    await expect(clause(page, "Objet du pari")).toContainText(EMOJI_AT_BOUNDS.o);
+    await expect(clause(page, "Articles").getByRole("listitem")).toHaveCount(5);
+  });
+
+  test("CA-1 · acte d'emoji aux bornes tapé dans le formulaire : scellé, relu à l'identique après rechargement", async ({
+    page,
+  }) => {
+    await openAt(page, "");
+    await fillDraft(page, {
+      p: EMOJI_AT_BOUNDS.p,
+      c: EMOJI_AT_BOUNDS.c,
+      o: EMOJI_AT_BOUNDS.o,
+      e: EMOJI_AT_BOUNDS.e,
+    });
+    await page.getByRole("button", { name: "Ajouter un article" }).click();
+    await page.getByRole("button", { name: "Ajouter un article" }).click();
+    for (const [index, text] of EMOJI_AT_BOUNDS.a.entries()) {
+      await field(page, `Article ${index + 1}`).fill(text);
+    }
+    await sealButton(page).click();
+    await expect(deedNumber(page)).toBeVisible();
+    const sealed = decodeHash(currentHash(page));
+    expect({ ...sealed, d: 0, t: 0 }).toEqual({ ...EMOJI_AT_BOUNDS, d: 0, t: 0 });
+    const number = normalizeSpaces((await deedNumber(page).textContent()) ?? "");
+    expect(number).toBe(expectedNumber(sealed));
+    await page.reload();
+    await expect(deedNumber(page)).toHaveText(exactText(number));
+  });
+
+  for (const size of [
+    { width: 360, height: 780 },
+    { width: 1280, height: 720 },
+  ]) {
+    test(`CA-11 · acte d'emoji aux bornes à ${size.width} px : rien de coupé ni de recouvert`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "tailles imposées par le test");
+      await page.setViewportSize(size);
+      await openDeed(page, hashOf(EMOJI_AT_BOUNDS, ".n"));
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+      expect(await deedArticle(page).evaluate(layoutProblems)).toEqual([]);
+    });
+  }
+});
+
+/** Idéogrammes tous différents (lien long, bornes respectées). Même suite que les tests unitaires. */
+function distinctIdeographs() {
+  let bmpNext = 1;
+  let astralNext = 1;
+  return {
+    bmp: (length: number) =>
+      Array.from({ length }, () =>
+        String.fromCodePoint(0x4e00 + ((bmpNext++ * 7919) % 20_000)),
+      ).join(""),
+    astral: (length: number) =>
+      Array.from({ length }, () =>
+        String.fromCodePoint(0x20000 + ((astralNext++ * 7919) % 40_000)),
+      ).join(""),
+  };
+}
+
+test.describe("Tour 2 · CA-1 · acte trop long pour tenir dans un lien", () => {
+  /** Bornes respectées, lien > 4 Ko ; l'article 2 (hors plan de base) est de loin le plus lourd. */
+  async function fillHeavy(page: Page) {
+    const gen = distinctIdeographs();
+    await fillDraft(page, { p: gen.bmp(40), c: gen.bmp(40), o: gen.bmp(200), e: gen.bmp(120) });
+    await page.getByRole("button", { name: "Ajouter un article" }).click();
+    await field(page, "Article 1").fill(gen.bmp(160));
+    await field(page, "Article 2").fill(gen.astral(160));
+    await field(page, "Article 3").fill(gen.bmp(150));
+    await field(page, "Article 4").fill(gen.bmp(100));
+  }
+
+  test("CA-1 · erreur reliée à l'article 2 (le texte le plus lourd) par aria-describedby, focus dessus, résumé, pas de hash", async ({
+    page,
+  }) => {
+    await openAt(page, "");
+    await fillHeavy(page);
+    await sealButton(page).click();
+
+    const heavy = field(page, "Article 2");
+    await expect(heavy).toBeFocused();
+    await expect(heavy).toHaveAttribute("aria-invalid", "true");
+    expect(await describedErrors(heavy)).toMatch(/lien/u);
+    for (const label of [
+      "Le parieur",
+      "Le contre-parieur",
+      "Objet du pari",
+      "Enjeu",
+      "Article 1",
+      "Article 3",
+      "Article 4",
+      "Échéance du pari",
+    ]) {
+      await expect(field(page, label), label).not.toHaveAttribute("aria-invalid", "true");
+    }
+    await expect(
+      page.getByText(
+        exactText("Acte trop long pour tenir dans un lien : raccourcissez le texte signalé."),
+      ),
+    ).toBeVisible();
+    expect(currentHash(page)).toBe("");
+    await expectAxeClean(page);
+  });
+
+  test("CA-1 · raccourcir le seul texte signalé suffit : l'acte se scelle et se recharge", async ({
+    page,
+  }) => {
+    await openAt(page, "");
+    await fillHeavy(page);
+    await sealButton(page).click();
+    await expect(field(page, "Article 2")).toBeFocused();
+    await field(page, "Article 2").fill("Court.");
+    await expect(page.getByText(/Acte trop long/u)).toHaveCount(0);
+    await sealButton(page).click();
+    await expect(deedNumber(page)).toBeVisible();
+    const hash = currentHash(page);
+    expect(hash.length).toBeLessThanOrEqual(4097);
+    await page.reload();
+    await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(decodeHash(hash))));
+  });
+});
+
+test.describe("Tour 2 · échéance à une heure qui n'existe pas", () => {
+  test("Échéance · Paris, 28 mars 2027 à 02:30 (heure sautée) : erreur sur l'échéance, focus, pas de hash", async ({
+    page,
+  }) => {
+    await openAt(page, "");
+    await fillDraft(page, {
+      p: "Théo",
+      c: "Inès",
+      o: "Kevin sera en retard.",
+      e: "Un kebab.",
+      deadline: "2027-03-28T02:30",
+    });
+    await sealButton(page).click();
+    const control = field(page, "Échéance du pari");
+    await expect(control).toBeFocused();
+    await expect(control).toHaveAttribute("aria-invalid", "true");
+    const message = await describedErrors(control);
+    expect(message).toMatch(/heure/u);
+    expect(message).not.toMatch(/passée/u);
+    expect(currentHash(page)).toBe("");
+    await expectAxeClean(page);
+    await expectFrenchTypography(page);
+  });
+
+  test("Échéance · Paris, 25 octobre 2026 à 02:30 (heure qui existe deux fois) : acceptée, affichée à 02:30", async ({
+    page,
+  }) => {
+    await openAt(page, "");
+    await fillDraft(page, {
+      p: "Théo",
+      c: "Inès",
+      o: "Kevin sera en retard.",
+      e: "Un kebab.",
+      deadline: "2026-10-25T02:30",
+    });
+    await sealButton(page).click();
+    await expect(deedNumber(page)).toBeVisible();
+    await expect(clause(page, "Échéance du pari")).toContainText("25 octobre 2026 à 02:30");
+  });
+
+  test.describe("à New York", () => {
+    test.use({ timezoneId: "America/New_York" });
+    test("Échéance · New York, 14 mars 2027 à 02:30 refusée ; 28 mars 2027 à 02:30 acceptée (fuseau de l'appareil)", async ({
+      page,
+    }) => {
+      await openAt(page, "");
+      await fillDraft(page, {
+        p: "Théo",
+        c: "Inès",
+        o: "Kevin sera en retard.",
+        e: "Un kebab.",
+        deadline: "2027-03-14T02:30",
+      });
+      await sealButton(page).click();
+      await expect(field(page, "Échéance du pari")).toHaveAttribute("aria-invalid", "true");
+      expect(currentHash(page)).toBe("");
+      await field(page, "Échéance du pari").fill("2027-03-28T02:30");
+      await sealButton(page).click();
+      await expect(deedNumber(page)).toBeVisible();
+      expect(decodeHash(currentHash(page)).d).toBe(Date.UTC(2027, 2, 28, 6, 30));
+    });
+  });
+
+  test.describe("à Tokyo", () => {
+    test.use({ timezoneId: "Asia/Tokyo" });
+    test("Échéance · Tokyo (pas d'heure d'été), 28 mars 2027 à 02:30 : acceptée", async ({
+      page,
+    }) => {
+      await openAt(page, "");
+      await fillDraft(page, {
+        p: "Théo",
+        c: "Inès",
+        o: "Kevin sera en retard.",
+        e: "Un kebab.",
+        deadline: "2027-03-28T02:30",
+      });
+      await sealButton(page).click();
+      await expect(deedNumber(page)).toBeVisible();
+      expect(decodeHash(currentHash(page)).d).toBe(Date.UTC(2027, 2, 27, 17, 30));
+    });
+  });
+});
+
+test.describe("Tour 2 · écrans de refus : un seul bouton pour recommencer", () => {
+  function newDeedButtons(page: Page): Locator {
+    return page.getByRole("button", { name: /nouvel acte/iu });
+  }
+
+  const REFUSED = [
+    ["lien abîmé", "#1.!!!", "Acte illisible"],
+    ["clé inconnue", hashOf(JSON.stringify({ ...BASE, x: 1 })), "Acte illisible"],
+    ["hash de plus de 4 Ko", `#1.${"A".repeat(4100)}`, "Acte illisible"],
+    ["version inconnue", "#2.xxx", "Acte d'une version inconnue"],
+  ] as const;
+  for (const [label, hash, title] of REFUSED) {
+    test(`Écrans · ${label} : « Nouvel acte » absent, seul « Rédiger un nouvel acte » reste`, async ({
+      page,
+    }) => {
+      await openAt(page, hash);
+      await expect(page.getByRole("heading", { name: title })).toBeVisible();
+      await expect(newDeedButtons(page)).toHaveCount(1);
+      await expect(newDeedButtons(page)).toHaveAccessibleName("Rédiger un nouvel acte");
+      await expect(page.getByRole("button", { name: "Nouvel acte", exact: true })).toHaveCount(0);
+    });
+  }
+
+  test("Écrans · acte → lien abîmé (hashchange) : « Nouvel acte » disparaît ; retour à l'acte : il revient", async ({
+    page,
+  }) => {
+    await openDeed(page, hashOf(BASE));
+    await expect(page.getByRole("button", { name: "Nouvel acte", exact: true })).toBeVisible();
+    await setHash(page, "#1.!!!");
+    await expect(unreadableHeading(page)).toBeVisible();
+    await expect(newDeedButtons(page)).toHaveCount(1);
+    await setHash(page, hashOf(BASE));
+    await expect(deedNumber(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Nouvel acte", exact: true })).toBeVisible();
+  });
+
+  test("Écrans · Rédaction : pas de « Nouvel acte » (on y est déjà)", async ({ page }) => {
+    await openAt(page, "");
+    await expect(draftHeading(page)).toBeVisible();
+    await expect(newDeedButtons(page)).toHaveCount(0);
+  });
+});
+
+test.describe("Tour 2 · axe à 360 px sur les nouveaux écrans", () => {
+  const NEW_SCREENS: [string, (page: Page) => Promise<void>][] = [
+    [
+      "Rédaction, heure inexistante",
+      async (page) => {
+        await openAt(page, "");
+        await fillDraft(page, {
+          p: "Théo",
+          c: "Inès",
+          o: "Kevin.",
+          e: "Kebab.",
+          deadline: "2027-03-28T02:30",
+        });
+        await sealButton(page).click();
+        await expect(field(page, "Échéance du pari")).toBeFocused();
+      },
+    ],
+    ["Acte d'emoji aux bornes", (page) => openDeed(page, hashOf(EMOJI_AT_BOUNDS))],
+    [
+      "Acte jugé, match nul, non scellé",
+      async (page) => {
+        await withoutSubtle(page);
+        await openDeed(page, hashOf(BASE, ".n"));
+      },
+    ],
+  ];
+  for (const [label, open] of NEW_SCREENS) {
+    for (const width of [360, 1280]) {
+      test(`axe · ${label} · ${width} px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 800 });
+        await open(page);
+        await expectAxeClean(page);
+        expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+      });
+    }
+  }
+});
+
+test.describe("Tour 2 · Rédaction : échéance proposée à J+7, 20 h (décision du tour 1)", () => {
+  for (const [label, at, expected] of [
+    ["mercredi 14 octobre 2026, 10 h", NOW_MS, "2026-10-21T20:00"],
+    // Le passage à l'heure d'hiver (25 octobre) tombe dans la semaine : toujours 20 h locales.
+    ["mardi 20 octobre 2026, 23 h 30", Date.UTC(2026, 9, 20, 21, 30), "2026-10-27T20:00"],
+  ] as const) {
+    test(`Rédaction · ouvert le ${label} : échéance proposée ${expected}`, async ({ page }) => {
+      await openAt(page, "", at);
+      await expect(field(page, "Échéance du pari")).toHaveValue(expected);
+    });
+  }
+
+  test("Rédaction · « Nouvel acte » depuis un acte : formulaire vierge, échéance à J+7 20 h, 3 articles", async ({
+    page,
+  }) => {
+    await openDeed(page, hashOf(BASE));
+    await page.getByRole("button", { name: "Nouvel acte", exact: true }).click();
+    await expect(draftHeading(page)).toBeVisible();
+    await expect(field(page, "Le parieur")).toHaveValue("");
+    await expect(field(page, "Échéance du pari")).toHaveValue("2026-10-21T20:00");
+    await expect(page.getByRole("group", { name: /Articles/u }).getByRole("textbox")).toHaveCount(
+      3,
+    );
+    expect(currentHash(page)).toBe("");
   });
 });

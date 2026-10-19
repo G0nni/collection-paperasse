@@ -9,6 +9,7 @@ import { countdown, spokenCountdown, stubs } from "../lib/countdown";
 import type { Deed } from "../lib/deed";
 import {
   DEFAULT_ARTICLES,
+  MISSING_DEADLINE,
   defaultDeadline,
   localToEpoch,
   parseLocalDateTime,
@@ -35,7 +36,7 @@ import {
   unreadableDetail,
   verdictLine,
 } from "../lib/messages";
-import { browserDigest, deedNumber, fingerprint, waxIndex } from "../lib/seal";
+import { browserDigest, deedNumber, fingerprint, numberSegments, waxIndex } from "../lib/seal";
 import { signaturePath } from "../lib/signature";
 
 // ---------------------------------------------------------------------------------------------
@@ -106,19 +107,18 @@ const view = {
   choiceOpponent: byId("choice-opponent", HTMLElement),
 };
 
-const copyDialog = byId("copy-dialog", HTMLDialogElement);
+// Le copieur partagé piège lui-même le focus dans son repli (CA-7).
 const copier = createCopier(
   {
     status: byId("copy-status", HTMLElement),
-    dialog: copyDialog,
+    dialog: byId("copy-dialog", HTMLDialogElement),
     field: byId("copy-field", HTMLInputElement),
   },
   TEXT.copied,
 );
 
-// CA-5 : focus piégé dans les deux boîtes de dialogue modales.
+// CA-5 : focus piégé dans la boîte de dialogue du verdict.
 trapFocus(view.verdictDialog);
-trapFocus(copyDialog);
 
 /** SHA-256 du navigateur, ou `null` hors contexte sécurisé (CL-6). */
 const digest = browserDigest(globalThis.crypto);
@@ -227,8 +227,22 @@ function renderNotices(texts: readonly string[]): void {
   view.dismissNotices.hidden = texts.length === 0;
 }
 
+/**
+ * Écrit le numéro avec une possibilité de retour à la ligne (<wbr>) après chaque tiret : à 360 px,
+ * il ne tient pas sur une ligne, et il ne doit jamais se couper au milieu d'un groupe. Les
+ * morceaux sont des nœuds texte, jamais du HTML.
+ */
+function writeDeedNumber(element: HTMLElement, number: string): void {
+  if (element.textContent === number) return;
+  element.replaceChildren(
+    ...numberSegments(number).flatMap((segment, index) =>
+      index === 0 ? [segment] : [document.createElement("wbr"), segment],
+    ),
+  );
+}
+
 function renderDeed(deed: Deed, verdict: Verdict | null, fingerprintHex: string | null): void {
-  setText(view.deedNumber, deedNumber(fingerprintHex, deed.draftedAt));
+  writeDeedNumber(view.deedNumber, deedNumber(fingerprintHex, deed.draftedAt));
   setText(view.deedRegistered, registeredLine(formatDate(deed.draftedAt)));
   view.unsealed.hidden = fingerprintHex !== null;
   // Index de palette (0 à 3), jamais une couleur venue du lien.
@@ -374,7 +388,7 @@ function resetForm(): void {
 
 function readDeadline(): Draft["deadline"] {
   const local = parseLocalDateTime(view.deadline.value);
-  return local === null ? null : localToEpoch(local);
+  return local === null ? MISSING_DEADLINE : localToEpoch(local);
 }
 
 function readDraft(): Draft {

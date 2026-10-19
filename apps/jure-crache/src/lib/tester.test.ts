@@ -7,7 +7,7 @@ import LZString from "lz-string";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { countdown, spokenCountdown, stubs } from "./countdown";
 import { canonicalJson, type Deed } from "./deed";
-import { DEFAULT_ARTICLES, validateDraft, type Draft } from "./draft";
+import { DEFAULT_ARTICLES, MISSING_DEADLINE, deadlineAt, validateDraft, type Draft } from "./draft";
 import { buildHash, fitsInLink, parseHash, type LinkState } from "./link";
 import { TEXT } from "./messages";
 import {
@@ -19,6 +19,7 @@ import {
   type Digest,
 } from "./seal";
 import { signaturePath } from "./signature";
+import { expectedDeedNumber } from "../../../../tests/e2e/support/crockford";
 
 /** Mercredi 14 octobre 2026, 10:00 à Paris. */
 const NOW = Date.UTC(2026, 9, 14, 8, 0, 0);
@@ -71,14 +72,13 @@ function deedOf(state: LinkState): Deed {
 const nodeDigest: Digest = (data) => webcrypto.subtle.digest("SHA-256", data);
 
 /**
- * Numéro attendu d'après la spec, calculé indépendamment (node:crypto). Mis à jour au tour 2 par
- * le builder : la spec (specs/jure-crache.md, ligne 49) passe à `N° AAAA-XXXX-XXXX-XXXX-XXXX`,
- * 16 premiers hex de l'empreinte (64 bits).
+ * Numéro attendu d'après la spec, calculé indépendamment (node:crypto + oracle base32). Mis à
+ * jour au tour 3 par le builder : la spec (specs/jure-crache.md, ligne 49) passe à « N° AAAA- »
+ * suivi des 128 premiers bits de l'empreinte en base32 Crockford, groupés par 4.
  */
 function specNumber(deed: DeedJson): string {
-  const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex").toUpperCase();
-  const groups = [0, 4, 8, 12].map((start) => hex.slice(start, start + 4)).join("-");
-  return `N°${NBSP}${new Date(deed.t).getUTCFullYear()}-${groups}`;
+  const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex");
+  return expectedDeedNumber(hex, deed.t);
 }
 
 async function shownNumber(hash: string, now = NOW): Promise<string> {
@@ -341,7 +341,7 @@ describe("CA-3 · numéro d'acte", () => {
     expect(canonicalJson(deed)).toBe(canonical(BASE));
   });
 
-  it("CA-3 · N° AAAA-XXXX-XXXX-XXXX-XXXX : année de t, 16 premiers hex du SHA-256, en majuscules", async () => {
+  it("CA-3 · N° AAAA-XXXX-…-XX : année de t, 128 premiers bits du SHA-256 en base32 Crockford", async () => {
     expect(await shownNumber(hashOf(BASE))).toBe(specNumber(BASE));
   });
 
@@ -467,7 +467,7 @@ describe("CA-2 · aller-retour formulaire → lien", () => {
     subject: "Kevin sera en retard.",
     stake: "Un kebab.",
     articles: [...DEFAULT_ARTICLES],
-    deadline: NOW + DAY,
+    deadline: deadlineAt(NOW + DAY),
     ...changes,
   });
 
@@ -521,7 +521,7 @@ describe("Formulaire", () => {
     subject: "Kevin sera en retard.",
     stake: "Un kebab.",
     articles: [...DEFAULT_ARTICLES],
-    deadline: NOW + DAY,
+    deadline: deadlineAt(NOW + DAY),
     ...changes,
   });
 
@@ -561,10 +561,11 @@ describe("Formulaire", () => {
   });
 
   it.each([
-    ["hier", NOW - DAY, "past-date"],
-    ["maintenant", NOW, "past-date"],
-    ["dans 10 ans et 1 jour", NOW + 3654 * DAY, "too-far"],
-    ["vide", null, "missing-date"],
+    // Tour 3 (builder) : le champ date est lu en type discriminé (deadlineAt, MISSING_DEADLINE).
+    ["hier", deadlineAt(NOW - DAY), "past-date"],
+    ["maintenant", deadlineAt(NOW), "past-date"],
+    ["dans 10 ans et 1 jour", deadlineAt(NOW + 3654 * DAY), "too-far"],
+    ["vide", MISSING_DEADLINE, "missing-date"],
   ] as const)("CL-5 · échéance %s → erreur sur l'échéance", (_label, deadline, code) => {
     const result = validateDraft(draft({ deadline }), NOW);
     if (result.ok) throw new Error("accepté");
@@ -572,7 +573,7 @@ describe("Formulaire", () => {
   });
 
   it("CL-5 · échéance dans 1 ms : acceptée", () => {
-    expect(validateDraft(draft({ deadline: NOW + 1 }), NOW).ok).toBe(true);
+    expect(validateDraft(draft({ deadline: deadlineAt(NOW + 1) }), NOW).ok).toBe(true);
   });
 });
 

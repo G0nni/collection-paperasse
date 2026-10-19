@@ -176,6 +176,22 @@ describe("dates fr-FR", () => {
     expect(formatDateTime(DEED.deadline, "Europe/Paris")).toBe("17 octobre 2026 à 20:00");
     expect(formatDateTime(DEED.deadline, "America/New_York")).toBe("17 octobre 2026 à 14:00");
     // Un acte rédigé le 31/12 à 23 h 30 UTC est du 1er janvier à Paris.
-    expect(formatDate(Date.UTC(2026, 11, 31, 23, 30), "Europe/Paris")).toBe("1 janvier 2027");
+    expect(formatDate(Date.UTC(2026, 11, 31, 23, 30), "Europe/Paris")).toBe("1er janvier 2027");
+  });
+
+  it("« 1er » pour le premier du mois, jamais pour le 11, le 21 ou le 31", () => {
+    expect(formatDate(Date.UTC(2026, 10, 1, 12), "Europe/Paris")).toBe("1er novembre 2026");
+    expect(formatDateTime(Date.UTC(2026, 10, 1, 19), "Europe/Paris")).toBe(
+      "1er novembre 2026 à 20:00",
+    );
+    // Le 1er à Paris, encore le 31 octobre à New York : le fuseau décide.
+    expect(formatDateTime(Date.UTC(2026, 10, 1, 1), "America/New_York")).toBe(
+      "31 octobre 2026 à 21:00",
+    );
+    for (const day of [11, 21]) {
+      expect(formatDate(Date.UTC(2026, 10, day, 12), "Europe/Paris")).toBe(`${day} novembre 2026`);
+    }
+    expect(formatDate(Date.UTC(2026, 11, 31, 12), "Europe/Paris")).toBe("31 décembre 2026");
+    expect(formatDate(Date.UTC(2026, 9, 10, 12), "Europe/Paris")).toBe("10 octobre 2026");
   });
 });

@@ -934,9 +934,11 @@ const stubs = [
     line-height: 1.4;
   }
 
-  /* Le numéro ne se coupe jamais à ses tirets. */
+  /* Le numéro (40 caractères) ne tient pas sur une ligne à 360 px : il passe à la ligne après un
+     tiret (<wbr> posés par le script), jamais au milieu d'un groupe, faute d'autre point de
+     coupure entre lettres et chiffres. Il ne sort jamais de son bloc. */
   .deed-number {
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .deed-meta {
@@ -1379,7 +1381,11 @@ const stubs = [
   @page {
     size: A4;
     margin: 8mm 10mm 13mm;
+  }
 
+  /* Page nommée : le pied en marge n'est que sur les pages de l'acte. Imprimer la Rédaction ou
+     un refus (masqués à l'impression) sort une page blanche, sans faux pied d'acte (spec, CA-6). */
+  @page deed {
     @bottom-center {
       content: "Acte sans aucune valeur juridique. Juré, craché.";
       color: #1e4636;
@@ -1408,6 +1414,11 @@ const stubs = [
     #refused,
     .dialog {
       display: none !important;
+    }
+
+    /* Seules les pages de l'acte portent le pied en marge (@page deed). */
+    #deed-screen {
+      page: deed;
     }
 
     /* Pas d'espace avant l'acte : tout le haut de page est pour lui. */
@@ -1483,6 +1494,8 @@ const stubs = [
     .free-text,
     .article-list :global(li) {
       max-height: calc(var(--print-lines) * 1lh);
+      /* Sur papier, rien ne dépasse du plafond : pas de demi-ligne rognée sous la dernière. */
+      overflow-clip-margin: 0;
     }
 
     .name {

@@ -15,23 +15,30 @@ function readObjects(pdf: Buffer): Map<number, PdfObject> {
     const number = Number(match[1]);
     const start = header.lastIndex;
     const end = text.indexOf("endobj", start);
+    if (end === -1) throw new Error(`PDF : objet ${number} sans « endobj »`);
     const streamAt = text.indexOf("stream", start);
-    if (end === -1) break;
     if (streamAt === -1 || streamAt > end) {
       objects.set(number, { dictionary: text.slice(start, end), stream: null });
       continue;
     }
     const dictionary = text.slice(start, streamAt);
-    // Les données binaires peuvent contenir « endobj » : on saute /Length octets.
-    const length = Number(/\/Length (\d+)(?! \d+ R)/u.exec(dictionary)?.[1] ?? Number.NaN);
+    // Les données binaires peuvent contenir « endobj » : on saute /Length octets. Une longueur
+    // indirecte (« /Length 12 0 R ») n'est pas suivie : on refuse plutôt que lire « 12 ».
+    if (/\/Length\s+\d+\s+\d+\s+R\b/u.test(dictionary)) {
+      throw new Error(`PDF : longueur indirecte de l'objet ${number} non gérée`);
+    }
+    const length = Number(/\/Length\s+(\d+)\b/u.exec(dictionary)?.[1] ?? Number.NaN);
+    if (!Number.isInteger(length)) throw new Error(`PDF : longueur de l'objet ${number} illisible`);
     let dataStart = streamAt + "stream".length;
     if (text.startsWith("\r\n", dataStart)) dataStart += 2;
     else if (text.startsWith("\n", dataStart)) dataStart += 1;
-    if (!Number.isInteger(length)) throw new Error(`PDF : longueur de l'objet ${number} illisible`);
+    if (dataStart + length > pdf.length) throw new Error(`PDF : flux de l'objet ${number} tronqué`);
     const raw = pdf.subarray(dataStart, dataStart + length);
     const stream = /\/FlateDecode/u.test(dictionary) ? inflateSync(raw) : raw;
     objects.set(number, { dictionary, stream });
-    header.lastIndex = text.indexOf("endobj", dataStart + length) + "endobj".length;
+    const streamEnd = text.indexOf("endobj", dataStart + length);
+    if (streamEnd === -1) throw new Error(`PDF : objet ${number} sans « endobj » après son flux`);
+    header.lastIndex = streamEnd + "endobj".length;
   }
   return objects;
 }
@@ -125,15 +132,53 @@ function contentText(
   return text;
 }
 
-/** Texte de chaque page du PDF, dans l'ordre des pages. */
+/** Numéro de l'objet référencé par `/Key N 0 R` dans un dictionnaire, sinon une erreur. */
+function reference(dictionary: string, key: string, what: string): number {
+  const found = new RegExp(`/${key}\\s+(\\d+)\\s+0\\s+R\\b`, "u").exec(dictionary)?.[1];
+  if (found === undefined) throw new Error(`PDF : ${what} introuvable`);
+  return Number(found);
+}
+
+/**
+ * Pages feuilles de l'arbre des pages, dans l'ordre, depuis le nœud `number`. `seen` empêche
+ * de tourner en rond sur un arbre circulaire.
+ */
+function pageLeaves(objects: Map<number, PdfObject>, number: number, seen: Set<number>): string[] {
+  if (seen.has(number)) throw new Error(`PDF : arbre des pages circulaire (objet ${number})`);
+  seen.add(number);
+  const node = objects.get(number)?.dictionary;
+  if (node === undefined) throw new Error(`PDF : nœud de pages ${number} absent`);
+  if (/\/Type\s*\/Page(?![s\w])/u.test(node)) return [node];
+  if (!/\/Type\s*\/Pages\b/u.test(node))
+    throw new Error(`PDF : objet ${number} n'est pas une page`);
+  const kids = /\/Kids\s*\[([^\]]*)\]/u.exec(node)?.[1];
+  if (kids === undefined) throw new Error(`PDF : nœud de pages ${number} sans /Kids`);
+  return [...kids.matchAll(/(\d+)\s+0\s+R/gu)].flatMap((kid) =>
+    pageLeaves(objects, Number(kid[1]), seen),
+  );
+}
+
+/**
+ * Texte de chaque page du PDF, dans l'ordre des pages. On part du catalogue (`/Root` de la
+ * dernière bande-annonce, mise à jour incrémentale comprise), puis de son `/Pages` ; le nombre
+ * de pages trouvées doit égaler le `/Count` de la racine.
+ */
 export function pdfPageTexts(pdf: Buffer): string[] {
   const objects = readObjects(pdf);
-  const catalogPages = [...objects.values()].find((object) =>
-    /\/Type\s*\/Pages\b/u.test(object.dictionary),
-  );
-  const kids = /\/Kids\s*\[([^\]]*)\]/u.exec(catalogPages?.dictionary ?? "")?.[1] ?? "";
-  return [...kids.matchAll(/(\d+) 0 R/gu)].map((kid) => {
-    const page = objects.get(Number(kid[1]))?.dictionary ?? "";
+  const roots = [...pdf.toString("latin1").matchAll(/\/Root\s+(\d+)\s+0\s+R\b/gu)];
+  const root = roots.at(-1)?.[1];
+  if (root === undefined) throw new Error("PDF : /Root introuvable");
+  const catalog = objects.get(Number(root))?.dictionary;
+  if (catalog === undefined || !/\/Type\s*\/Catalog\b/u.test(catalog)) {
+    throw new Error(`PDF : le catalogue ${root} est absent ou n'en est pas un`);
+  }
+  const pagesRoot = reference(catalog, "Pages", "/Pages du catalogue");
+  const pages = pageLeaves(objects, pagesRoot, new Set());
+  const count = Number(/\/Count\s+(\d+)\b/u.exec(objects.get(pagesRoot)?.dictionary ?? "")?.[1]);
+  if (count !== pages.length) {
+    throw new Error(`PDF : ${pages.length} pages trouvées, /Count en annonce ${count}`);
+  }
+  return pages.map((page) => {
     const contents = [
       ...(/\/Contents\s*(\[[^\]]*\]|\d+ 0 R)/u.exec(page)?.[1] ?? "").matchAll(/(\d+) 0 R/gu),
     ].map((ref) => objects.get(Number(ref[1]))?.stream?.toString("latin1") ?? "");

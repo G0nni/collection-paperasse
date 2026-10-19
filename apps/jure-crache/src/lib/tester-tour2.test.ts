@@ -1,5 +1,5 @@
 // Tests unitaires du tour 2 (agent tester), écrits à partir de la spec mise à jour après le tour 1
-// (specs/jure-crache.md) : numéro sur 64 bits en année UTC (ligne 49), 4 Ko décodés mesurés en
+// (specs/jure-crache.md) : numéro en année UTC (ligne 49 ; 128 bits en base32 depuis le tour 3), 4 Ko décodés mesurés en
 // unités UTF-16 (ligne 41), acte d'emoji aux bornes, heure inexistante au passage à l'heure d'été,
 // erreur « lien trop long » posée sur le texte à raccourcir (CA-1).
 import { createHash, webcrypto } from "node:crypto";
@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canonicalJson, type Deed } from "./deed";
 import {
   DEFAULT_ARTICLES,
+  MISSING_DEADLINE,
+  deadlineAt,
   localToEpoch,
   parseLocalDateTime,
   validateDraft,
@@ -17,6 +19,7 @@ import { formatDate } from "./format";
 import { buildHash, fitsInLink, parseHash, type LinkState } from "./link";
 import { TEXT, fieldErrorText, formErrorText, judgedLine } from "./messages";
 import { deedNumber, fingerprint, type Digest } from "./seal";
+import { DEED_NUMBER_SHAPE, expectedDeedNumber } from "../../../../tests/e2e/support/crockford";
 
 /** Mercredi 14 octobre 2026, 10:00 à Paris. */
 const NOW = Date.UTC(2026, 9, 14, 8, 0, 0);
@@ -115,7 +118,8 @@ const draftOf = (changes: Partial<Draft>): Draft => ({
   subject: "Kevin sera en retard.",
   stake: "Un kebab.",
   articles: [...DEFAULT_ARTICLES],
-  deadline: NOW + DAY,
+  // Tour 3 (builder) : le champ date est lu en type discriminé (deadlineAt, MISSING_DEADLINE).
+  deadline: deadlineAt(NOW + DAY),
   ...changes,
 });
 
@@ -148,7 +152,8 @@ afterEach(() => {
   else process.env["TZ"] = savedTimeZone;
 });
 
-describe("CA-3 · numéro sur 64 bits, année UTC (spec ligne 49)", () => {
+// Mis à jour au tour 3 par le builder : la spec (ligne 49) passe à 128 bits en base32 Crockford.
+describe("CA-3 · numéro sur 128 bits, année UTC (spec ligne 49)", () => {
   it.each(["Europe/Paris", "Pacific/Kiritimati", "Pacific/Pago_Pago", "UTC"])(
     "CA-3 · rédigé le 31/12/2026 à 23:30 UTC : année 2026 dans le numéro, fuseau %s",
     async (zone) => {
@@ -160,17 +165,17 @@ describe("CA-3 · numéro sur 64 bits, année UTC (spec ligne 49)", () => {
       };
       const parsed = deedOf(parseHash(hashOfJson(canonical(deed)), Date.UTC(2027, 0, 1, 1)));
       const shown = deedNumber(await fingerprint(parsed, nodeDigest), parsed.draftedAt);
-      const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex").toUpperCase();
-      expect(shown).toBe(
-        `N°${NBSP}2026-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`,
-      );
+      const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex");
+      expect(shown).toBe(expectedDeedNumber(hex, deed.t));
+      expect(shown.startsWith(`N°${NBSP}2026-`)).toBe(true);
     },
   );
 
-  it("CA-3 · le numéro a exactement la forme N° AAAA-XXXX-XXXX-XXXX-XXXX (hex majuscule)", async () => {
+  it("CA-3 · le numéro a exactement la forme N° AAAA-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX (base32 Crockford)", async () => {
     const parsed = deedOf(parseHash(hashOfJson(canonical(BASE)), NOW));
     const shown = deedNumber(await fingerprint(parsed, nodeDigest), parsed.draftedAt);
-    expect(shown).toMatch(new RegExp(`^N°${NBSP}2026(?:-[0-9A-F]{4}){4}$`, "u"));
+    expect(shown).toMatch(DEED_NUMBER_SHAPE);
+    expect(shown.startsWith(`N°${NBSP}2026-`)).toBe(true);
   });
 });
 
@@ -320,7 +325,7 @@ describe("Échéance · heure qui n'existe pas au passage à l'heure d'été", (
     (value) => {
       process.env["TZ"] = "Europe/Paris";
       const local = parseLocalDateTime(value);
-      const deadline = local === null ? null : localToEpoch(local);
+      const deadline = local === null ? MISSING_DEADLINE : localToEpoch(local);
       const result = validateDraft(draftOf({ deadline }), NOW);
       expect(result.ok).toBe(false);
     },

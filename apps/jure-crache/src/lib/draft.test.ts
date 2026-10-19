@@ -3,7 +3,9 @@ import { NBSP } from "@paperasse/shared/typography";
 import { canonicalJson } from "./deed";
 import {
   DEFAULT_ARTICLES,
-  NONEXISTENT_TIME,
+  MISSING_DEADLINE,
+  NONEXISTENT_DEADLINE,
+  deadlineAt,
   defaultDeadline,
   largestText,
   localToEpoch,
@@ -22,7 +24,7 @@ const DRAFT: Draft = {
   subject: "Kevin arrivera en retard à la soirée de samedi.",
   stake: "Un (1) kebab.",
   articles: [...DEFAULT_ARTICLES],
-  deadline: NOW + 3 * 86_400_000,
+  deadline: deadlineAt(NOW + 3 * 86_400_000),
 };
 
 describe("CA-10 · articles par défaut", () => {
@@ -40,7 +42,7 @@ describe("CA-1 · validateDraft", () => {
   it("un formulaire valide donne un acte daté de maintenant, relu à l'identique par le lien", () => {
     const result = validateDraft(DRAFT, NOW);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
-    expect(result.deed).toEqual({ ...DRAFT, draftedAt: NOW });
+    expect(result.deed).toEqual({ ...DRAFT, deadline: NOW + 3 * 86_400_000, draftedAt: NOW });
     const state = parseHash(buildHash(result.deed, null), NOW);
     expect(state.screen === "deed" && canonicalJson(state.deed)).toBe(canonicalJson(result.deed));
   });
@@ -59,7 +61,7 @@ describe("CA-1 · validateDraft", () => {
         subject: "   ",
         stake: "y".repeat(121),
         articles: ["ok", "", "z".repeat(161)],
-        deadline: null,
+        deadline: MISSING_DEADLINE,
       },
       NOW,
     );
@@ -100,18 +102,18 @@ describe("CA-1 · validateDraft", () => {
 
   it("CL-5 · échéance déjà passée (ou maintenant) : erreur", () => {
     for (const deadline of [NOW, NOW - 1, NOW - 86_400_000]) {
-      const result = validateDraft({ ...DRAFT, deadline }, NOW);
+      const result = validateDraft({ ...DRAFT, deadline: deadlineAt(deadline) }, NOW);
       expect(!result.ok && result.errors).toEqual([
         { field: "deadline", index: 0, code: "past-date" },
       ]);
     }
-    expect(validateDraft({ ...DRAFT, deadline: NOW + 1 }, NOW).ok).toBe(true);
+    expect(validateDraft({ ...DRAFT, deadline: deadlineAt(NOW + 1) }, NOW).ok).toBe(true);
   });
 
   it("échéance à plus de 10 ans : erreur", () => {
     const tenYears = Date.UTC(2036, 9, 14, 9, 0, 0);
-    expect(validateDraft({ ...DRAFT, deadline: tenYears }, NOW).ok).toBe(true);
-    const result = validateDraft({ ...DRAFT, deadline: tenYears + 1 }, NOW);
+    expect(validateDraft({ ...DRAFT, deadline: deadlineAt(tenYears) }, NOW).ok).toBe(true);
+    const result = validateDraft({ ...DRAFT, deadline: deadlineAt(tenYears + 1) }, NOW);
     expect(!result.ok && result.errors).toEqual([{ field: "deadline", index: 0, code: "too-far" }]);
   });
 
@@ -123,10 +125,13 @@ describe("CA-1 · validateDraft", () => {
 
   it("horloge de l'appareil avant 2026 : refus, l'acte ne serait pas relu", () => {
     const early = Date.UTC(2025, 5, 1);
-    const result = validateDraft({ ...DRAFT, deadline: early + 86_400_000 }, early);
+    const result = validateDraft({ ...DRAFT, deadline: deadlineAt(early + 86_400_000) }, early);
     expect(result).toEqual({ ok: false, reason: "clock", errors: [] });
     // Un champ en erreur passe avant l'horloge : c'est lui qu'il faut corriger d'abord.
-    const both = validateDraft({ ...DRAFT, bettor: "", deadline: early + 86_400_000 }, early);
+    const both = validateDraft(
+      { ...DRAFT, bettor: "", deadline: deadlineAt(early + 86_400_000) },
+      early,
+    );
     expect(both).toEqual({
       ok: false,
       reason: "fields",
@@ -134,8 +139,28 @@ describe("CA-1 · validateDraft", () => {
     });
   });
 
+  it("l'erreur d'échéance ferme la liste, seule ou après les autres", () => {
+    expect(validateDraft({ ...DRAFT, deadline: MISSING_DEADLINE }, NOW)).toEqual({
+      ok: false,
+      reason: "fields",
+      errors: [{ field: "deadline", index: 0, code: "missing-date" }],
+    });
+    const both = validateDraft({ ...DRAFT, stake: "", deadline: deadlineAt(NOW - 1) }, NOW);
+    expect(!both.ok && both.errors).toEqual([
+      { field: "stake", index: 0, code: "empty" },
+      { field: "deadline", index: 0, code: "past-date" },
+    ]);
+    // Un instant qui n'est pas un entier sûr (NaN, infini) vaut une date manquante.
+    for (const ms of [Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
+      const result = validateDraft({ ...DRAFT, deadline: deadlineAt(ms) }, NOW);
+      expect(!result.ok && result.errors).toEqual([
+        { field: "deadline", index: 0, code: "missing-date" },
+      ]);
+    }
+  });
+
   it("heure sautée au passage à l'heure d'été : erreur sur l'échéance", () => {
-    const result = validateDraft({ ...DRAFT, deadline: NONEXISTENT_TIME }, NOW);
+    const result = validateDraft({ ...DRAFT, deadline: NONEXISTENT_DEADLINE }, NOW);
     expect(result).toEqual({
       ok: false,
       reason: "fields",
@@ -143,7 +168,7 @@ describe("CA-1 · validateDraft", () => {
     });
   });
 
-  it("acte trop long pour un lien : erreur sur le texte qui y prend le plus de place", () => {
+  it("CL-9 · acte dans les bornes, lien de plus de 4 Ko : erreur sur le texte le plus lourd une fois compressé", () => {
     // Des idéogrammes tous différents se compressent mal : l'acte respecte les bornes, pas le lien.
     let next = 0;
     const rare = (length: number) =>
@@ -202,13 +227,17 @@ describe("champ datetime-local", () => {
 
   it("passage à l'heure d'été (29 mars 2026, Paris) : 2 h 30 n'existe pas, 1 h 59 et 3 h 00 oui", () => {
     const day = { year: 2026, month: 3, day: 29 };
-    expect(localToEpoch({ ...day, hour: 2, minute: 30 })).toBe(NONEXISTENT_TIME);
-    expect(localToEpoch({ ...day, hour: 2, minute: 0 })).toBe(NONEXISTENT_TIME);
-    expect(localToEpoch({ ...day, hour: 1, minute: 59 })).toBe(Date.UTC(2026, 2, 29, 0, 59));
-    expect(localToEpoch({ ...day, hour: 3, minute: 0 })).toBe(Date.UTC(2026, 2, 29, 1, 0));
+    expect(localToEpoch({ ...day, hour: 2, minute: 30 })).toEqual(NONEXISTENT_DEADLINE);
+    expect(localToEpoch({ ...day, hour: 2, minute: 0 })).toEqual(NONEXISTENT_DEADLINE);
+    expect(localToEpoch({ ...day, hour: 1, minute: 59 })).toEqual(
+      deadlineAt(Date.UTC(2026, 2, 29, 0, 59)),
+    );
+    expect(localToEpoch({ ...day, hour: 3, minute: 0 })).toEqual(
+      deadlineAt(Date.UTC(2026, 2, 29, 1, 0)),
+    );
     // Retour à l'heure d'hiver : 2 h 30 existe deux fois, le moteur prend la première.
-    expect(localToEpoch({ year: 2026, month: 10, day: 25, hour: 2, minute: 30 })).toBe(
-      Date.UTC(2026, 9, 25, 0, 30),
+    expect(localToEpoch({ year: 2026, month: 10, day: 25, hour: 2, minute: 30 })).toEqual(
+      deadlineAt(Date.UTC(2026, 9, 25, 0, 30)),
     );
   });
 
@@ -234,24 +263,26 @@ describe("champ datetime-local", () => {
 
   it("localToEpoch : heure locale du moteur, dates impossibles refusées", () => {
     const local = { year: 2026, month: 10, day: 17, hour: 20, minute: 0 };
-    expect(localToEpoch(local)).toBe(new Date(2026, 9, 17, 20, 0).getTime());
-    expect(localToEpoch({ ...local, month: 2, day: 30 })).toBeNull();
-    expect(localToEpoch({ ...local, month: 13 })).toBeNull();
-    expect(localToEpoch({ ...local, hour: 24 })).toBeNull();
-    expect(localToEpoch({ ...local, minute: 60 })).toBeNull();
+    expect(localToEpoch(local)).toEqual(deadlineAt(new Date(2026, 9, 17, 20, 0).getTime()));
+    expect(localToEpoch({ ...local, month: 2, day: 30 })).toEqual(MISSING_DEADLINE);
+    expect(localToEpoch({ ...local, month: 13 })).toEqual(MISSING_DEADLINE);
+    expect(localToEpoch({ ...local, hour: 24 })).toEqual(MISSING_DEADLINE);
+    expect(localToEpoch({ ...local, minute: 60 })).toEqual(MISSING_DEADLINE);
   });
 
   it("toLocalInputValue fait l'aller-retour avec parseLocalDateTime + localToEpoch", () => {
     const ms = new Date(2026, 9, 17, 20, 5).getTime();
     expect(toLocalInputValue(ms)).toBe("2026-10-17T20:05");
     const parsed = parseLocalDateTime(toLocalInputValue(ms));
-    expect(parsed && localToEpoch(parsed)).toBe(ms);
+    expect(parsed && localToEpoch(parsed)).toEqual(deadlineAt(ms));
   });
 
   it("échéance proposée : dans 7 jours à 20 h, heure locale, toujours dans le futur", () => {
     const now = new Date(2026, 9, 14, 23, 59).getTime();
     const proposed = new Date(defaultDeadline(now));
     expect([proposed.getDate(), proposed.getHours(), proposed.getMinutes()]).toEqual([21, 20, 0]);
-    expect(validateDraft({ ...DRAFT, deadline: defaultDeadline(NOW) }, NOW).ok).toBe(true);
+    expect(validateDraft({ ...DRAFT, deadline: deadlineAt(defaultDeadline(NOW)) }, NOW).ok).toBe(
+      true,
+    );
   });
 });

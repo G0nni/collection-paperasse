@@ -5,6 +5,7 @@
 // Les types ne retiennent que ce que le copieur utilise des éléments : un HTMLElement, un
 // HTMLDialogElement et un HTMLInputElement conviennent, et les tests unitaires passent des
 // doublures sans DOM.
+import { trapFocus } from "./dom";
 
 /** Région `aria-live="polite"` à côté des boutons de copie. */
 export type CopyStatus = { textContent: string | null };
@@ -61,6 +62,12 @@ export function createCopier(
 ): Copier {
   /** Bouton qui a ouvert le repli : il reprend le focus à la fermeture. */
   let opener: CopyOpener | null = null;
+
+  // Dans le navigateur, Tab et Maj+Tab restent dans le repli modal (Chromium laisse sinon le
+  // focus filer vers la barre d'adresse). Les doublures des tests unitaires n'ont pas de DOM.
+  if (typeof HTMLDialogElement === "function" && view.dialog instanceof HTMLDialogElement) {
+    trapFocus(view.dialog);
+  }
 
   // « Fermer » (formulaire method="dialog") et Échap passent tous deux par `close`.
   view.dialog.addEventListener("close", () => {

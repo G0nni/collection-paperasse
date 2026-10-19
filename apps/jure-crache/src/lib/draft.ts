@@ -12,20 +12,30 @@ export const DEFAULT_ARTICLES = [
   "Toute excuse impliquant la SNCF sera examinée par le tribunal des potes, qui statue en dernier ressort.",
 ] as const;
 
-/** Heure locale qui n'existe pas sur l'appareil : sautée au passage à l'heure d'été. */
-export const NONEXISTENT_TIME = "nonexistent";
+/** Ce que donne le champ date, lu dans le fuseau de l'appareil. */
+export type DeadlineInput =
+  /** Un instant, en ms UTC. */
+  | { readonly kind: "instant"; readonly ms: number }
+  /** Champ vide, illisible, ou date absente du calendrier (31 février). */
+  | { readonly kind: "missing" }
+  /** Heure que l'horloge locale saute au passage à l'heure d'été. */
+  | { readonly kind: "nonexistent" };
 
-/**
- * Le formulaire tel que tapé. `deadline` vaut `null` si le champ date est vide ou illisible,
- * `NONEXISTENT_TIME` si l'heure tapée n'existe pas dans le fuseau de l'appareil.
- */
+export const MISSING_DEADLINE: DeadlineInput = { kind: "missing" };
+export const NONEXISTENT_DEADLINE: DeadlineInput = { kind: "nonexistent" };
+
+export function deadlineAt(ms: number): DeadlineInput {
+  return { kind: "instant", ms };
+}
+
+/** Le formulaire tel que tapé. */
 export type Draft = {
   readonly bettor: string;
   readonly opponent: string;
   readonly subject: string;
   readonly stake: string;
   readonly articles: readonly string[];
-  readonly deadline: number | typeof NONEXISTENT_TIME | null;
+  readonly deadline: DeadlineInput;
 };
 
 /** Champs de texte libre du formulaire. */
@@ -86,12 +96,12 @@ function checkText(value: string, bounds: TextBounds): { value: string } | TextE
 }
 
 /** L'échéance en ms si elle est acceptable, sinon la raison du refus. */
-function checkDeadline(deadline: Draft["deadline"], nowMs: number): number | DeadlineErrorCode {
-  if (deadline === NONEXISTENT_TIME) return "nonexistent-time";
-  if (deadline === null || !Number.isSafeInteger(deadline)) return "missing-date";
-  if (deadline <= nowMs) return "past-date";
-  if (deadline > latestDeadline(nowMs)) return "too-far";
-  return deadline;
+function checkDeadline(deadline: DeadlineInput, nowMs: number): number | DeadlineErrorCode {
+  if (deadline.kind === "nonexistent") return "nonexistent-time";
+  if (deadline.kind === "missing" || !Number.isSafeInteger(deadline.ms)) return "missing-date";
+  if (deadline.ms <= nowMs) return "past-date";
+  if (deadline.ms > latestDeadline(nowMs)) return "too-far";
+  return deadline.ms;
 }
 
 /**
@@ -148,11 +158,14 @@ export function validateDraft(draft: Draft, nowMs: number): DraftResult {
 
   const deadline = checkDeadline(draft.deadline, nowMs);
   if (typeof deadline === "string") {
+    // Le champ date vient en dernier dans le formulaire : son erreur ferme la liste.
     const deadlineError: FieldError = { field: "deadline", index: 0, code: deadline };
-    // Le champ date vient en dernier dans le formulaire. La valeur par défaut ne sert qu'au
-    // typage : la liste contient au moins l'erreur de date.
-    const [first = deadlineError, ...rest] = [...errors, deadlineError];
-    return { ok: false, reason: "fields", errors: [first, ...rest] };
+    const [first, ...rest] = errors;
+    return {
+      ok: false,
+      reason: "fields",
+      errors: first === undefined ? [deadlineError] : [first, ...rest, deadlineError],
+    };
   }
   const [first, ...rest] = errors;
   if (first !== undefined) return { ok: false, reason: "fields", errors: [first, ...rest] };
@@ -213,12 +226,12 @@ export function parseLocalDateTime(value: string): LocalDateTime | null {
 }
 
 /**
- * Instant (ms UTC) d'une heure locale, dans le fuseau du moteur qui exécute le code (celui de
- * l'appareil, dans le navigateur). `null` pour une date qui n'existe pas au calendrier
- * (31 février) ; `NONEXISTENT_TIME` pour une heure que l'horloge locale saute (passage à l'heure
- * d'été : à Paris, le 29 mars 2026, on passe de 1 h 59 à 3 h 00).
+ * Instant d'une heure locale, dans le fuseau du moteur qui exécute le code (celui de l'appareil,
+ * dans le navigateur). « missing » pour une date qui n'existe pas au calendrier (31 février) ;
+ * « nonexistent » pour une heure que l'horloge locale saute (passage à l'heure d'été : à Paris,
+ * le 29 mars 2026, on passe de 1 h 59 à 3 h 00).
  */
-export function localToEpoch(local: LocalDateTime): number | typeof NONEXISTENT_TIME | null {
+export function localToEpoch(local: LocalDateTime): DeadlineInput {
   // Le calendrier d'abord, en UTC (pas d'heure sautée) : le constructeur reporte les
   // débordements (31/02 → 03/03) ; on refuse plutôt que deviner.
   const calendar = new Date(
@@ -231,11 +244,11 @@ export function localToEpoch(local: LocalDateTime): number | typeof NONEXISTENT_
     calendar.getUTCHours() !== local.hour ||
     calendar.getUTCMinutes() !== local.minute
   ) {
-    return null;
+    return MISSING_DEADLINE;
   }
   const date = new Date(local.year, local.month - 1, local.day, local.hour, local.minute);
   const time = date.getTime();
-  if (!Number.isSafeInteger(time)) return null;
+  if (!Number.isSafeInteger(time)) return MISSING_DEADLINE;
   // Date valide au calendrier mais relue autrement en heure locale : l'heure n'existe pas ici
   // (le moteur l'a décalée d'une heure plutôt que de refuser).
   const sameLocal =
@@ -244,7 +257,7 @@ export function localToEpoch(local: LocalDateTime): number | typeof NONEXISTENT_
     date.getDate() === local.day &&
     date.getHours() === local.hour &&
     date.getMinutes() === local.minute;
-  return sameLocal ? time : NONEXISTENT_TIME;
+  return sameLocal ? deadlineAt(time) : NONEXISTENT_DEADLINE;
 }
 
 /** Valeur d'un champ datetime-local pour l'instant `ms`, en heure locale : « 2026-10-17T20:00 ». */

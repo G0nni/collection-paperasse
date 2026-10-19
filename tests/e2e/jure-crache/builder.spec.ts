@@ -10,6 +10,7 @@ import { buildHash, compressPayload } from "../../../apps/jure-crache/src/lib/li
 import { TEXT } from "../../../apps/jure-crache/src/lib/messages";
 import { WAX_PALETTE } from "../../../apps/jure-crache/src/lib/seal";
 import { sanitizeText } from "../../../packages/shared/src/text";
+import { DEED_NUMBER_SHAPE, expectedDeedNumber } from "../support/crockford";
 import { countIgnoringSpaces, pdfPageTexts } from "../support/pdf";
 import { NBSP, normalizeSpaces, perceivedTexts, typographyIssues } from "../support/text";
 
@@ -58,11 +59,9 @@ function fingerprintOf(deed: Deed): string {
   return createHash("sha256").update(canonicalJson(deed), "utf8").digest("hex");
 }
 
-/** Numéro attendu : « N° AAAA-XXXX-XXXX-XXXX-XXXX », 16 premiers hex de l'empreinte (64 bits). */
+/** Numéro attendu (spec ligne 49) : « N° AAAA- » et 128 bits de l'empreinte en base32 Crockford. */
 function expectedNumber(deed: Deed): string {
-  const head = fingerprintOf(deed).slice(0, 16).toUpperCase();
-  const groups = [0, 4, 8, 12].map((start) => head.slice(start, start + 4)).join("-");
-  return `N°${NBSP}${new Date(deed.draftedAt).getUTCFullYear()}-${groups}`;
+  return expectedDeedNumber(fingerprintOf(deed), deed.draftedAt);
 }
 
 /** Ouvre `url` avec l'horloge figée à `atMs` (figée avant la navigation). */
@@ -73,7 +72,7 @@ async function openAt(page: Page, url: string, atMs: number = NOW) {
 }
 
 const deedArticle = (page: Page) => page.getByRole("article", { name: "Acte de pari" });
-/** Ligne du numéro : « N° 2026-XXXX-XXXX-XXXX-XXXX · enregistré le … ». */
+/** Ligne du numéro : « N° 2026-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX · enregistré le … ». */
 const deedNumber = (page: Page) =>
   deedArticle(page).getByRole("paragraph").filter({ hasText: /^N°/u });
 const timer = (page: Page) => page.getByRole("timer");
@@ -178,7 +177,9 @@ test.describe("jure-crache · rédaction", () => {
     await expect(deedArticle(page)).toContainText("Sam");
     await expect(deedArticle(page)).toContainText(DEED.subject);
     await expect(deedArticle(page).getByRole("listitem")).toHaveCount(3);
-    await expect(deedNumber(page)).toHaveText(/^N°\u00a02026(?:-[0-9A-F]{4}){4} · /u);
+    await expect(deedNumber(page)).toHaveText(
+      /^N°\u00a02026(?:-[0-9A-HJKMNP-TV-Z]{4}){6}-[0-9A-HJKMNP-TV-Z]{2} · /u,
+    );
     await expect(page.getByRole("button", { name: "Copier le lien de l'acte" })).toBeFocused();
     expect(await page.evaluate(() => history.length)).toBe(historyLength + 1);
 
@@ -245,7 +246,7 @@ test.describe("jure-crache · rédaction", () => {
     await expect(deedArticle(page)).toBeVisible();
   });
 
-  test("CA-1 · acte trop long pour un lien : erreur reliée au texte le plus lourd, focus dessus", async ({
+  test("CL-9 · acte dans les bornes trop long pour un lien : erreur reliée au texte le plus lourd, focus dessus", async ({
     page,
   }) => {
     await openAt(page, BASE);
@@ -869,6 +870,34 @@ test.describe("jure-crache · impression et copie", () => {
       await expect(copy).toBeFocused();
     });
   }
+
+  test("CA-7 · repli de copie : Tab et Maj+Tab bouclent dans le dialogue (copieur partagé)", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    });
+    await openAt(page, linkOf(DEED));
+    await page.getByRole("button", { name: "Copier le lien de l'acte" }).click();
+    const dialog = page.getByRole("dialog", { name: "Copiez le lien à la main" });
+    const field = page.getByLabel("Lien à copier");
+    const close = dialog.getByRole("button", { name: "Fermer" });
+    await expect(field).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(close).toBeFocused();
+    // Après le dernier élément, retour au premier (et non vers la barre d'adresse).
+    await page.keyboard.press("Tab");
+    await expect(field).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(close).toBeFocused();
+    for (let press = 0; press < 6; press += 1) {
+      await page.keyboard.press(press % 2 === 0 ? "Tab" : "Shift+Tab");
+      const inside = await page.evaluate(
+        () => document.activeElement?.closest("dialog")?.id ?? null,
+      );
+      expect(inside, `touche n° ${press + 1}`).toBe("copy-dialog");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1068,6 +1097,131 @@ test.describe("jure-crache · CA-6 · une page A4 par construction", () => {
     const [text = ""] = pdfPageTexts(await printPdf(page));
     expect(countIgnoringSpaces(text, `N°${NBSP}NON-SCELLÉ`)).toBe(1);
     expect(countIgnoringSpaces(text, TEXT.unsealed)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tour 3 · numéro sur 128 bits (spec ligne 49), pied en marge sur les seules pages de l'acte
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Problèmes de mise en page du numéro : il doit tenir dans son bloc et dans le cadre, sans
+ * défilement horizontal, et ne passer à la ligne qu'après un tiret (chaque morceau « XXXX- »
+ * sur une seule ligne).
+ */
+function numberLayoutProblems(): string[] {
+  const number = document.getElementById("deed-number");
+  const block = number?.closest(".title-block");
+  const frame = number?.closest(".frame");
+  if (!number || !block || !frame) return ["numéro, bloc ou cadre introuvable"];
+  const problems: string[] = [];
+  const blockBox = block.getBoundingClientRect();
+  const frameBox = frame.getBoundingClientRect();
+  for (const rect of number.getClientRects()) {
+    if (rect.left < blockBox.left - 0.5 || rect.right > blockBox.right + 0.5) {
+      problems.push(`ligne du numéro hors de son bloc : ${rect.left}–${rect.right}`);
+    }
+    if (rect.left < frameBox.left || rect.right > frameBox.right) {
+      problems.push("ligne du numéro hors du cadre");
+    }
+  }
+  const root = document.documentElement;
+  if (root.scrollWidth > root.clientWidth) {
+    problems.push(`défilement horizontal : ${root.scrollWidth} > ${root.clientWidth}`);
+  }
+  for (const node of number.childNodes) {
+    if (node.nodeType !== Node.TEXT_NODE) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const tops = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+    if (tops.size > 1) problems.push(`« ${node.textContent ?? ""} » coupé sur ${tops.size} lignes`);
+  }
+  return problems;
+}
+
+test.describe("jure-crache · tour 3 · numéro sur 128 bits", () => {
+  test("CA-3 · N° AAAA- et 26 caractères base32 Crockford par 4 (oracle node:crypto)", async ({
+    page,
+  }) => {
+    await openAt(page, linkOf(DEED));
+    const number = page.locator("#deed-number");
+    await expect(number).toHaveText(expectedNumber(DEED));
+    const shown = (await number.textContent()) ?? "";
+    expect(shown).toMatch(DEED_NUMBER_SHAPE);
+    // Les points de coupure sont des <wbr>, sans texte : le numéro lu et copié est entier.
+    expect(await number.locator("wbr").count()).toBe(7);
+  });
+
+  for (const [label, deed] of [
+    ["acte ordinaire", DEED],
+    ["acte le plus long", LONGEST],
+    ["lien forgé en U+FDFD", FORGED_WIDE],
+  ] as const) {
+    test(`CA-11 · à 360 px, le numéro tient dans l'acte sans couper un groupe (${label})`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "viewport fixé par le test");
+      await page.setViewportSize({ width: 360, height: 780 });
+      await openAt(page, linkOf(deed));
+      await expect(page.locator("#deed-number")).toHaveText(expectedNumber(deed));
+      await page.evaluate(() => document.fonts.ready);
+      expect(await page.evaluate(numberLayoutProblems)).toEqual([]);
+    });
+  }
+
+  test("CA-6 · à l'impression, le numéro tient dans l'acte et figure entier dans le PDF", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "largeur A4 fixée par le test");
+    await page.setViewportSize({ width: A4_PRINT_WIDTH, height: 1100 });
+    await openAt(page, linkOf(LONGEST, "p"));
+    await expect(page.locator("#deed-number")).toHaveText(expectedNumber(LONGEST));
+    await page.emulateMedia({ media: "print" });
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(numberLayoutProblems)).toEqual([]);
+    const pages = pdfPageTexts(await printPdf(page));
+    expect(pages).toHaveLength(1);
+    expect(countIgnoringSpaces(pages[0] ?? "", expectedNumber(LONGEST))).toBe(1);
+  });
+});
+
+test.describe("jure-crache · tour 3 · pied en marge sur les seules pages de l'acte", () => {
+  test("CA-6 · imprimer la Rédaction : aucune page ne porte le pied d'acte", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+    await openAt(page, BASE);
+    await expect(draftForm(page)).toBeVisible();
+    const pages = pdfPageTexts(await printPdf(page));
+    expect(pages.length).toBeGreaterThanOrEqual(1);
+    expect(pages.map((text) => countIgnoringSpaces(text, TEXT.footer))).toEqual(pages.map(() => 0));
+  });
+
+  for (const [label, url] of [
+    ["Acte illisible", rawLink("[]")],
+    ["Acte d'une version inconnue", `${BASE}#2.xxx`],
+  ] as const) {
+    test(`CA-6 · imprimer un refus (${label}) : aucune page ne porte le pied d'acte`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+      await openAt(page, url);
+      await expect(page.getByRole("heading", { name: label })).toBeVisible();
+      const pages = pdfPageTexts(await printPdf(page));
+      expect(pages.map((text) => countIgnoringSpaces(text, TEXT.footer))).toEqual(
+        pages.map(() => 0),
+      );
+    });
+  }
+
+  test("CA-6 · l'acte, lui, garde son pied deux fois : dans l'acte et dans la marge", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+    await openAt(page, linkOf(DEED));
+    await expect(deedNumber(page)).toContainText(expectedNumber(DEED));
+    const pages = pdfPageTexts(await printPdf(page));
+    expect(pages.map((text) => countIgnoringSpaces(text, TEXT.footer))).toEqual([2]);
   });
 });
 

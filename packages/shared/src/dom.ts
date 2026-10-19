@@ -34,8 +34,7 @@ export function fillList(list: Element, texts: readonly string[]): void {
 }
 
 /** Ce qui peut recevoir le focus au clavier dans une boîte de dialogue. */
-export const FOCUSABLE =
-  "button, input, textarea, select, a[href], [tabindex]:not([tabindex='-1'])";
+const FOCUSABLE = "button, input, textarea, select, a[href], [tabindex]:not([tabindex='-1'])";
 
 /**
  * Garde Tab et Maj+Tab dans un <dialog> modal. Chromium rend le reste de la page inerte mais

@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { gzipSync } from "node:zlib";
 import type * as LZStringModule from "../../../apps/jure-crache/node_modules/lz-string";
 import { contrastFailures, snapshotTextNodes } from "../support/contrast";
+import { expectedDeedNumber } from "../support/crockford";
 import { countIgnoringSpaces, pdfPageTexts } from "../support/pdf";
 import { normalizeSpaces, perceivedTexts, typographyIssues } from "../support/text";
 
@@ -84,13 +85,13 @@ function hashOf(deed: DeedJson | string, suffix = ""): string {
 }
 
 /**
- * Numéro attendu d'après la spec : « N° AAAA-XXXX-XXXX-XXXX-XXXX ». Mis à jour au tour 2 par le
- * builder : la spec (specs/jure-crache.md, ligne 49) passe de 8 à 16 caractères hexadécimaux.
+ * Numéro attendu d'après la spec. Mis à jour au tour 3 par le builder : la spec
+ * (specs/jure-crache.md, ligne 49) passe à « N° AAAA- » suivi des 128 premiers bits de
+ * l'empreinte en base32 Crockford (26 caractères), groupés par 4 (oracle tests/e2e/support).
  */
 function expectedNumber(deed: DeedJson): string {
-  const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex").toUpperCase();
-  const groups = [0, 4, 8, 12].map((start) => hex.slice(start, start + 4)).join("-");
-  return `N° ${new Date(deed.t).getUTCFullYear()}-${groups}`;
+  const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex");
+  return expectedDeedNumber(hex, deed.t).replace(String.fromCodePoint(0xa0), " ");
 }
 
 /**
@@ -139,7 +140,10 @@ function deedArticle(page: Page): Locator {
   return page.getByRole("article", { name: "Acte de pari" });
 }
 function deedNumber(page: Page): Locator {
-  return deedArticle(page).getByText(/^N°\s(?:\d{4}(?:-[0-9A-F]{4}){4}|NON-SCELLÉ)$/u);
+  // Tour 3 (builder) : 128 bits en base32 Crockford, 6 groupes de 4 puis 1 de 2 (spec ligne 49).
+  return deedArticle(page).getByText(
+    /^N°\s(?:\d{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){6}-[0-9A-HJKMNP-TV-Z]{2}|NON-SCELLÉ)$/u,
+  );
 }
 function party(page: Page, role: "Le parieur" | "Le contre-parieur"): Locator {
   return deedArticle(page).getByRole("region", { name: role, exact: true });
@@ -820,7 +824,7 @@ test.describe("CA-2 · Recharger, ouvrir ailleurs", () => {
 // ==============================================================================================
 
 test.describe("CA-3 · Numéro d'acte", () => {
-  test("CA-3 · le numéro est N° AAAA-XXXX-XXXX-XXXX-XXXX : année de t, 16 premiers hex du SHA-256 du JSON canonique", async ({
+  test("CA-3 · le numéro est N° AAAA-XXXX-…-XX : année de t, 128 premiers bits du SHA-256 du JSON canonique en base32 Crockford", async ({
     page,
   }) => {
     await openDeed(page, hashOf(BASE));
@@ -1996,9 +2000,10 @@ test.describe("Écrans de la spec · axe, typographie, cibles, contraste", () =>
 
 // ==============================================================================================
 // Tour 2 (agent tester) : spec mise à jour après le tour 1. Écran 3 « Verdict déclaré », numéro
-// sur 64 bits, 4 Ko en unités UTF-16 (acte d'emoji), CA-6 par construction (plafonds, pied en
-// marge @page, pas de page blanche), CL-6 imprimé, « lien trop long » relié au champ, heure
-// inexistante au passage à l'heure d'été, « Nouvel acte » absent des écrans de refus.
+// sur 64 bits (128 bits en base32 depuis le tour 3, builder), 4 Ko en unités UTF-16 (acte
+// d'emoji), CA-6 par construction (plafonds, pied en marge @page, pas de page blanche), CL-6
+// imprimé, « lien trop long » relié au champ, heure inexistante au passage à l'heure d'été,
+// « Nouvel acte » absent des écrans de refus.
 // ==============================================================================================
 
 /** Largeur imprimable d'une page A4 (210 mm moins 2 × 10 mm de marge @page), en px CSS. */
@@ -2281,14 +2286,16 @@ test.describe("Tour 2 · Écran 3 · « Verdict déclaré. Échéance du pari : 
   });
 });
 
-test.describe("Tour 2 · CA-3 · numéro sur 64 bits, année UTC", () => {
+test.describe("Tour 2 · CA-3 · numéro sur 128 bits (tour 3), année UTC", () => {
   test("CA-3 · rédigé le 31 décembre à 23 h 30 UTC, lu à Paris le 1er janvier : N° 2026-…", async ({
     page,
   }) => {
     const deed = deedWith({ t: Date.UTC(2026, 11, 31, 23, 30), d: Date.UTC(2027, 0, 10) });
     await openDeed(page, hashOf(deed), Date.UTC(2027, 0, 1, 1, 0));
     await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(deed)));
-    expect(expectedNumber(deed)).toMatch(/^N° 2026(?:-[0-9A-F]{4}){4}$/u);
+    expect(expectedNumber(deed)).toMatch(
+      /^N° 2026(?:-[0-9A-HJKMNP-TV-Z]{4}){6}-[0-9A-HJKMNP-TV-Z]{2}$/u,
+    );
   });
 
   test.describe("à Kiritimati (UTC+14)", () => {
@@ -2381,7 +2388,7 @@ test.describe("Tour 2 · CA-1 · acte trop long pour tenir dans un lien", () => 
     await field(page, "Article 4").fill(gen.bmp(100));
   }
 
-  test("CA-1 · erreur reliée à l'article 2 (le texte le plus lourd) par aria-describedby, focus dessus, résumé, pas de hash", async ({
+  test("CL-9 · CA-1 · erreur reliée à l'article 2 (le texte le plus lourd) par aria-describedby, focus dessus, résumé, pas de hash", async ({
     page,
   }) => {
     await openAt(page, "");

@@ -43,18 +43,58 @@ export async function fingerprint(deed: Deed, digest: Digest | null): Promise<st
   }
 }
 
+/** Alphabet base32 de Crockford : chiffres et lettres sans I, L, O, U (pas de confusion). */
+export const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
 /**
- * « N° AAAA-XXXX-XXXX-XXXX-XXXX » : année UTC de la rédaction (le même numéro sur tous les
- * appareils, quel que soit leur fuseau) et 16 premiers caractères de l'empreinte (64 bits), en
- * majuscules. À 32 bits, forger un autre acte au même numéro prenait quelques minutes de calcul
- * (rapport security, tour 1). Insécable après « N° » : le numéro ne part pas seul à la ligne.
+ * Base32 Crockford d'octets, bits de poids fort d'abord ; le dernier caractère est complété par
+ * des bits à zéro (16 octets → 26 caractères).
+ */
+export function crockfordBase32(bytes: Uint8Array): string {
+  let text = "";
+  let buffer = 0;
+  let bufferedBits = 0;
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bufferedBits += 8;
+    while (bufferedBits >= 5) {
+      bufferedBits -= 5;
+      text += CROCKFORD_ALPHABET.charAt((buffer >> bufferedBits) & 31);
+    }
+    // Seuls les bits pas encore écrits restent : le tampon ne dépasse jamais 12 bits.
+    buffer &= (1 << bufferedBits) - 1;
+  }
+  if (bufferedBits > 0) text += CROCKFORD_ALPHABET.charAt((buffer << (5 - bufferedBits)) & 31);
+  return text;
+}
+
+/** Octets d'une chaîne hexadécimale valide (longueur paire). */
+function hexBytes(hex: string): Uint8Array {
+  return Uint8Array.from(hex.match(/../gu) ?? [], (pair) => Number.parseInt(pair, 16));
+}
+
+/**
+ * « N° AAAA-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX » : année UTC de la rédaction (le même numéro sur
+ * tous les appareils, quel que soit leur fuseau) et 128 premiers bits de l'empreinte en base32
+ * Crockford (26 caractères), groupés par 4. À 64 bits, l'auteur pouvait préparer deux versions
+ * au même numéro en ~2^32 calculs (rapport security, tour 2). Insécable après « N° » : le
+ * numéro ne part pas seul à la ligne.
  */
 export function deedNumber(fingerprintHex: string | null, draftedAt: number): string {
   if (fingerprintHex === null) return UNSEALED_NUMBER;
   const year = String(new Date(draftedAt).getUTCFullYear());
-  const head = fingerprintHex.slice(0, 16).toUpperCase();
-  const groups = [0, 4, 8, 12].map((start) => head.slice(start, start + 4));
+  const code = crockfordBase32(hexBytes(fingerprintHex.slice(0, 32)));
+  const groups = code.match(/.{1,4}/gu) ?? [];
   return `N°${NBSP}${year}-${groups.join("-")}`;
+}
+
+/**
+ * Morceaux du numéro, chacun finissant par son tiret : l'écran ne peut passer à la ligne
+ * qu'entre deux morceaux, jamais au milieu d'un groupe (à 360 px, le numéro ne tient pas sur
+ * une ligne).
+ */
+export function numberSegments(number: string): string[] {
+  return number.split(/(?<=-)/u);
 }
 
 /**

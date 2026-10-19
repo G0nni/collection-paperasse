@@ -46,11 +46,13 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 
 - `empreinte = SHA-256(JSON canonique de acte)` via `crypto.subtle.digest`. JSON canonique =
   clés dans l'ordre `p, c, o, e, a, d, t`, sans espace.
-- Numéro affiché : `N° AAAA-XXXX-XXXX-XXXX-XXXX` où `AAAA` = année UTC de `t` et les 16
-  caractères suivants = 16 premiers caractères hexadécimaux de l'empreinte (64 bits), en
-  majuscules. Avec 8 caractères (32 bits), forger un autre acte au même numéro coûtait quelques
-  secondes à quelques minutes de calcul (rapport security, tour 1) ; à 64 bits, c'est hors de
-  portée. Le numéro détecte la retouche, il ne prouve rien juridiquement (pied d'acte).
+- Numéro affiché : `N° AAAA-` suivi des 128 premiers bits de l'empreinte en base32 Crockford
+  (26 caractères, alphabet `0-9 A-Z` sans `I L O U`), groupés par 4 avec des tirets
+  (`N° 2026-K7QM-4XRT-…`). `AAAA` = année UTC de `t`. Pourquoi 128 bits : à 32 bits, copier le
+  numéro d'un acte existant coûtait quelques minutes (security, tour 1) ; à 64 bits, l'auteur
+  pouvait encore préparer deux versions au même numéro en ~2^32 calculs (paradoxe des
+  anniversaires, security, tour 2). À 128 bits, les deux attaques sont hors de portée. Le numéro
+  détecte la retouche, il ne prouve rien juridiquement (pied d'acte).
 - La couleur de la cire est choisie dans une palette fixe de 4 teintes à partir de l'empreinte.
 - Les signatures sont des tracés SVG générés de façon déterministe à partir du nom (même nom →
   même gribouillis).
@@ -73,7 +75,8 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
   en idéogrammes. Chaque texte libre a un plafond de hauteur en impression : au-delà (lien forgé
   avec des glyphes très larges), il est coupé, jamais reporté sur une 2e page. Le pied d'acte est
   en plus répété en marge basse de chaque page imprimée (`@page`), pour qu'aucune page « officielle »
-  ne sorte sans lui.
+  ne sorte sans lui. Seul l'A4 est garanti (`size: A4`). Le pied en marge n'apparaît que sur les
+  pages de l'acte (page nommée), pas en imprimant la Rédaction ou un écran de refus.
 - **CA-7** « Copier le lien » : même comportement que le Réunion-mètre (CA-7 et section Écrans) :
   copie de l'URL courante, confirmation annoncée à côté du bouton qui s'efface si le lien change,
   et repli dans un `<dialog>` modal (champ sélectionné, Fermer, Échap, focus rendu) si le
@@ -87,6 +90,9 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
   horizontal. Textes libres nettoyés par `sanitizeText` (CLAUDE.md, Sécurité).
 
 ## Cas limites
+
+- **CL-9** Acte dans les bornes dont le lien dépasserait 4 Ko bruts (beaucoup de caractères
+  rares) → refusé au formulaire, erreur sur le texte le plus lourd une fois compressé, focus dessus.
 
 - **CL-1** Hash `#1.` vide, `#2.xxx` (version inconnue), `#1.xxx.z` (verdict inconnu) →
   respectivement Rédaction, « Acte d'une version inconnue », acte sans verdict.
@@ -135,3 +141,8 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
   forme propre réécrite (`replaceState`) sauf lien illisible ou de version inconnue ; Rédaction
   vide avec échéance proposée à J+7, 20 h, et les 3 articles par défaut ; boutons « Nouvel acte »
   et « Modifier le verdict » ; année du numéro en UTC (même numéro dans tous les fuseaux).
+- Dates : « 1er » pour le premier du mois (« 1er janvier 2027 »), `Intl` ne le fait pas.
+- Heure qui existe deux fois (passage à l'heure d'hiver) : la première occurrence est retenue.
+- Numéro sur 128 bits en base32 (décision de l'orchestrateur après le tour 2, à confirmer par
+  Gonni : l'alternative est de garder 64 bits et d'assumer qu'un auteur peut préparer deux
+  versions au même numéro).

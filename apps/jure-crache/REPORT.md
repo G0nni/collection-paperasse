@@ -1,58 +1,41 @@
-# Rapport jure-crache · tour 1
+# Rapport jure-crache · tour 2
 
 ## Verdict
 
-**Pas fini.** 1 bloquant (reviewer : impression d'un acte long, CA-6 et CA-8), 0 critique ou élevé
-(security : 2 moyens). 3 tests e2e en échec, tous sur CA-6.
+**Fini au sens de CLAUDE.md** (tester sans échec, reviewer « Prêt », security sans critique ni
+élevé, `pnpm verify` vert au build du tour 2). Un tour 3 court est lancé pour un point Important
+du reviewer et un point Moyen de security qui touchent le livrable :
 
-Décisions de l'orchestrateur à l'issue du tour (spec, commit « rapport tour 1 ») :
+- dates « 1 janvier » au lieu de « 1er janvier » dans l'acte ;
+- numéro sur 64 bits : un auteur peut préparer deux versions au même numéro en ~2^32 calculs
+  (paradoxe des anniversaires, via les millisecondes invisibles de `t` et `d` ou des invisibles
+  conservés). Décision : 128 bits en base32 Crockford (spec, à confirmer par Gonni).
 
-- Acte jugé : « Verdict déclaré. Échéance du pari : … », sans date de verdict (le lien n'en porte
-  pas ; « Jugé le <échéance> » inventait une date).
-- Numéro d'acte sur 64 bits (`N° AAAA-XXXX-XXXX-XXXX-XXXX`) : à 32 bits, forger un autre acte au
-  même numéro coûtait de quelques secondes à quelques minutes (security).
-- 4 Ko décodés mesurés en unités UTF-16 : un acte d'emoji aux bornes n'est plus refusé.
-- Impression : une page A4 par construction (plafond de hauteur par texte libre, coupé au-delà),
-  pas de page blanche, pied d'acte répété en marge de chaque page (`@page`).
-- Actés : forme propre réécrite, Rédaction J+7 20 h, boutons ajoutés, année UTC.
+Spec précisée (commit « rapport tour 2 ») : A4 seul garanti, pied en marge limité aux pages de
+l'acte, CL-9 (lien trop long d'un acte dans les bornes), heure double en octobre, « 1er ».
 
 ## Tester
 
-| ID | Statut |
-| -- | -- |
-| CA-1 à CA-5, CA-7 à CA-11 | ✅ |
-| CA-6 impression (idéogrammes aux bornes : 2 pages dont une blanche ; jugé match nul : 3 pages ; U+FDFD forgé : 3 pages dont une tamponnée sans pied) | ❌ 3 |
-| CL-1 à CL-8 | ✅ |
-| Lighthouse | ⚠️ non testable ici |
-
-Trous de spec relevés : bornes en points de code contre 4 Ko en octets, graphèmes contre points
-de code, numéro qui change sans différence visible (voulu, CA-3), « 10 ans » calendaire, formes de
-hash `#abc`, `#0.x`, `#1..p`, CL-6 à l'impression (bandeau masqué), écran pour un acte refusé.
-
-Durcissements proposés : bombe de décompression des tests réduite à 200 000 caractères ; moins de
-workers e2e (tests de géométrie lents sous charge).
+Aucun échec. Les 3 échecs CA-6 du tour 1 passent pour de bonnes raisons (une page, aucun texte
+légitime coupé, pied deux fois sur la page) ; modifications de ses tests par le builder
+justifiées (lignes 14, 41, 49). Trous : heure double, « 1 janvier », Letter, refus « lien trop
+long » dans les bornes. Durcissements : `pdf.ts` (drapeaux, positions).
 
 ## Reviewer
 
-- **[Bloquant]** CA-6/CA-8 : retirer `break-inside: avoid`, masquer `.top` et le `gap` en impression,
-  plafond `max-height: calc(N * 1lh)` + `overflow: clip` par texte libre, test sous
-  `emulateMedia print`.
-- [Important] « Jugé le … » affirme une date inconnue (tranché ci-dessus).
-- [Important] 4 Ko en octets UTF-8 refuse des actes valides (tranché : unités UTF-16).
-- [Important] « Acte trop long pour tenir dans un lien » non relié à un champ, sans focus, sans test.
-- [Important] Numéro 32 bits + marges invisibles (ms de `t`/`d`, U+200B) : collision en ~2^32.
-- Mineurs : `print` → `fingerprintHex` ; type discriminé pour l'erreur d'horloge ; `MAX` limité aux
-  textes ; palette en double et non testée au rendu ; `renderedHash` avant l'`await` ;
-  `copy-dialog` lu deux fois ; doublon « Nouvel acte » sur l'écran de refus ; `dom.ts` à mettre dans
-  shared ; découpage d'`app.ts` ; heure inexistante au passage à l'heure d'été acceptée.
-- Factorisation `copy.ts`/`ticker.ts` correcte ; réexports du Réunion-mètre à supprimer, test en
-  double, commentaire qui cite un look.
+Tous les points du tour 1 fermés sauf le découpage d'`app.ts` (547 lignes). Verdict : Prêt.
+
+- [Important] « 1 janvier » au lieu de « 1er janvier » (`format.ts`), test qui fige la faute.
+- Mineurs : `draft.ts` (défaut de déstructuration, sentinelle `"nonexistent"`), `@page` qui
+  imprime une page vide avec pied sur la Rédaction et les refus (page nommée),
+  `overflow-clip-margin` à 0 en impression, fragilités de `pdf.ts` (Length indirecte, `endobj`
+  absent, racine `/Pages`), `trapFocus` à appliquer au repli de copie partagé (Réunion-mètre).
 
 ## Security
 
-Aucun point critique ou élevé. Puits, prototype, parseurs, bombe de décompression (ratio max
-168:1, rejet immédiat), 300 `hashchange`, CSP et dépendances : rien à signaler.
+Aucun critique ou élevé. Forme propre et numéro toujours cohérents (20 000 actes piégés),
+impression sans débordement à la lecture du code, 4 Ko en UTF-16 sans risque, CSP et
+dépendances sains.
 
-- **Moyen** : numéro sur 32 bits, collision ciblée en secondes à minutes (tranché : 64 bits).
-- **Moyen** : impression multi-pages d'un acte forgé ; pied non répété (tranché : `@page`).
-- Info : homoglyphes inter-écritures (« Sam » / « Ѕаm ») non assimilés par CL-4.
+- **Moyen** : collision préparée par l'auteur à 64 bits (décision : 128 bits).
+- Info : homoglyphes inter-écritures.

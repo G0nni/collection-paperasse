@@ -65,11 +65,17 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
   de dialogue accessible (`<dialog>`, focus piégé, Échap ferme), puis ajoute le suffixe au hash.
 - **CA-6** « Imprimer » ouvre l'impression ; la feuille de style d'impression tient l'acte sur une
   page A4 sans les boutons.
-- **CA-7** « Copier le lien » : même comportement que Réunion-mètre CA-7.
+- **CA-7** « Copier le lien » : même comportement que le Réunion-mètre (CA-7 et section Écrans) :
+  copie de l'URL courante, confirmation annoncée à côté du bouton qui s'efface si le lien change,
+  et repli dans un `<dialog>` modal (champ sélectionné, Fermer, Échap, focus rendu) si le
+  presse-papiers est refusé.
 - **CA-8** Un pied d'acte permanent indique « Acte sans aucune valeur juridique. Juré, craché. »
 - **CA-9** Le `CollectionTag` affiche « Look 02/03 ».
 - **CA-10** Le formulaire propose 3 articles par défaut : retard > 10 min ; « j'suis en bas » ne
   vaut pas arrivée ; toute excuse impliquant la SNCF est examinée par le tribunal des potes.
+- **CA-11** De 360 à 1280 px (dont 640, 768, 960, 1024 et 1093×614), l'acte reste lisible : aucun
+  texte de l'acte coupé ou recouvert, sceau et signatures ne masquent rien, pas de défilement
+  horizontal. Textes libres nettoyés par `sanitizeText` (CLAUDE.md, Sécurité).
 
 ## Cas limites
 

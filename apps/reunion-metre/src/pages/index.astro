@@ -42,7 +42,8 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
               {TEXT.copyTicket}
             </button>
             {/* Confirmation de copie, à côté du bouton (spec, « Écrans ») : jamais par-dessus le
-                ticket. Vide, elle ne prend aucune place mais reste une région live. */}
+                ticket. Sa place est réservée, vide ou pleine : les boutons ne bougent pas quand
+                elle apparaît. */}
             <p class="copy-status" id="copy-status" aria-live="polite"></p>
             {/* Enseigne de taxi : OCCUPÉ pendant le Compteur (bouton Terminer). */}
             <button type="button" class="sign sign-busy" id="finish" hidden>
@@ -246,11 +247,18 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
 
     {/* Repli de copie (CA-7) : modal, Échap ou « Fermer » le referment, le focus revient au
         bouton de copie (scripts/copy.ts). */}
-    <dialog class="copy-dialog" id="copy-dialog" aria-labelledby="copy-dialog-title">
+    <dialog
+      class="copy-dialog"
+      id="copy-dialog"
+      aria-labelledby="copy-dialog-title"
+      aria-describedby="copy-dialog-text"
+    >
       <h2 class="copy-dialog-title" id="copy-dialog-title">
         {TEXT.copyDialogTitle}
       </h2>
-      <p class="copy-dialog-text">{TEXT.copyRefused}</p>
+      <p class="copy-dialog-text" id="copy-dialog-text">
+        {TEXT.copyRefused}
+      </p>
       <p class="copy-dialog-field">
         <label for="copy-field">{TEXT.linkField}</label>
         <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
@@ -598,21 +606,24 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     color: var(--muted);
   }
 
-  /* Confirmation de copie : coche ET texte, jamais la couleur seule. Vide, elle annule l'écart
-     que la rangée de boutons lui donne. */
+  /* Confirmation de copie : coche ET texte, jamais la couleur seule. Sa largeur est réservée
+     même vide (spec, « Écrans ») : « ✓ Lien copié. » y tient, et les boutons voisins restent
+     en place quand elle apparaît ou s'efface. */
   .copy-status {
+    box-sizing: border-box;
+    width: 7.5rem;
+    min-height: 1.35em;
     margin: 0;
     color: var(--amber);
     font-size: 0.875rem;
     font-weight: 700;
+    white-space: nowrap;
   }
 
-  .copy-status:empty {
-    margin-left: -0.625rem;
-  }
-
+  /* Coche décorative : le texte de remplacement vide la retire de ce que lit un lecteur
+     d'écran, qui annonce seulement « Lien copié. ». */
   .copy-status:not(:empty)::before {
-    content: "✓ ";
+    content: "✓ " / "";
   }
 
   /* ---------- Repli de copie ---------- */
@@ -1162,7 +1173,8 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
     margin-top: 0.5rem;
   }
 
-  /* Compteur : participants en lignes compactes sur deux colonnes, unité « €/h » visible. */
+  /* Compteur : participants en lignes compactes (deux colonnes si la place le permet), unité
+     « €/h » visible. */
   main[data-screen="meter"] .person-fields {
     grid-template-columns: minmax(0, 1fr) 6.75rem auto;
     align-items: center;
@@ -1174,6 +1186,12 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
 
   main[data-screen="meter"] .controls {
     gap: 0.75rem;
+  }
+
+  /* Le nombre de colonnes suit la largeur du bloc de la liste, pas celle de la fenêtre : à côté
+     du ticket (960 à 1270 px), la liste n'a pas la place de deux colonnes lisibles (CA-12). */
+  main[data-screen="meter"] .people-block {
+    container: people / inline-size;
   }
 
   @media (min-width: 40rem) {
@@ -1203,8 +1221,16 @@ const tariffs = TARIFF_CODES.map((code) => TARIFFS[code]);
       grid-column: 1 / -1;
       /* En haut de la place libre : la marge laissée pour les messages reste sous la liste. */
       align-self: start;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.5rem 0.875rem;
+    }
+  }
+
+  /* Deux colonnes seulement quand chacune garde un champ « Qui » d'au moins 18 caractères
+     (l'exemple de la spec, CA-12). À 1280 × 720, c'est ce qui fait tenir 8 participants sans
+     défilement (CA-11). */
+  @container people (min-width: 50rem) {
+    main[data-screen="meter"] .people-list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 

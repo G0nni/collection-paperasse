@@ -42,14 +42,17 @@ function randomLabel(next: () => number, max: number): string {
 
 describe("Calcul · tester", () => {
   it("CA-6 · somme des 4 lignes = total, aucune ligne négative, pour tout total de 0 à 200 000 centimes", () => {
-    for (let total = 0; total <= 200_000; total += 1) {
+    // Un seul expect après la boucle : 200 001 appels à expect coûtaient plus de 3 s et faisaient
+    // dépasser le délai de Vitest sous charge. Le premier total fautif est gardé pour le message.
+    let firstFailure: string | null = null;
+    for (let total = 0; total <= 200_000 && firstFailure === null; total += 1) {
       const lines = splitCost(total);
-      expect(lines).toHaveLength(4);
       const sum = lines.reduce((accumulator, line) => accumulator + line.cents, 0);
-      if (sum !== total || lines.some((line) => line.cents < 0)) {
-        throw new Error(`total ${total} : ${JSON.stringify(lines)}`);
+      if (lines.length !== 4 || sum !== total || lines.some((line) => line.cents < 0)) {
+        firstFailure = `total ${total} : ${JSON.stringify(lines)}`;
       }
     }
+    expect(firstFailure).toBeNull();
   });
 
   it("CA-6 · chaque ligne reste à moins d'un centime de sa part exacte (sauf la dernière, qui prend le reste)", () => {

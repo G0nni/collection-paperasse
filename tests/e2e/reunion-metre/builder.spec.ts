@@ -1255,3 +1255,161 @@ test.describe("reunion-metre · tour 3", () => {
     });
   }
 });
+
+test.describe("reunion-metre · tour 4", () => {
+  const status = (page: Page) => page.locator("#copy-status");
+  const copyMeter = (page: Page) =>
+    page.getByRole("button", { name: "Copier le lien du compteur" });
+  const METER = link("v=1", "t=B", p(68, "Cheffe de projet"), p(48, "Kevin"), `s=${S}`);
+
+  test("Écrans · « Lien copié » s'efface dès que le lien change (tarif, taux, libellé, ajout, retrait)", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await openAt(page, METER, S + 600);
+    const changes: readonly (readonly [string, () => Promise<void>])[] = [
+      ["tarif", () => page.getByRole("radio", { name: /Aurait pu être un mail/u }).click()],
+      ["taux", () => page.getByLabel("€/heure").first().fill("70")],
+      ["libellé", () => page.getByLabel("Qui", { exact: true }).nth(1).fill("Kevin du marketing")],
+      ["ajout", () => page.getByRole("button", { name: /rien à faire là/u }).click()],
+      [
+        "retrait",
+        () =>
+          page
+            .getByRole("button", { name: /^Retirer/u })
+            .last()
+            .click(),
+      ],
+    ];
+    for (const [what, change] of changes) {
+      await copyMeter(page).click();
+      await expect(status(page), what).toHaveText("Lien copié.");
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copied).toBe(page.url());
+      await change();
+      expect(page.url(), what).not.toBe(copied);
+      await expect(status(page), what).toBeEmpty();
+    }
+  });
+
+  test("Écrans · une saisie qui laisse le lien identique garde « Lien copié » (le presse-papiers est encore juste)", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await openAt(page, METER, S + 600);
+    await copyMeter(page).click();
+    await expect(status(page)).toHaveText("Lien copié.");
+    const copied = page.url();
+    // Le même taux retapé : un événement input, mais la même réunion, donc le même lien.
+    await page.getByLabel("€/heure").first().fill("68");
+    expect(page.url()).toBe(copied);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(page.url());
+    await expect(status(page)).toHaveText("Lien copié.");
+  });
+
+  for (const [width, height] of [
+    [1280, 720],
+    [1093, 614],
+    [960, 600],
+    [768, 1000],
+    [360, 780],
+  ] as const) {
+    test(`Écrans · ${width}×${height} : « Lien copié » apparaît et s'efface sans déplacer aucun bouton`, async ({
+      page,
+      context,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "viewport fixé par le test");
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.setViewportSize({ width, height });
+      for (const [url, name] of [
+        [link("v=1", ...SOLO, `s=${S}`, "n=Point hebdo"), "Copier le lien du compteur"],
+        [link("v=1", ...SOLO, `s=${S}`, `e=${S + 2520}`), "Copier le lien du ticket"],
+      ] as const) {
+        await openAt(page, url, S + 3000);
+        await page.evaluate(() => document.fonts.ready);
+        const boxes = () =>
+          page.evaluate(() =>
+            [...document.querySelectorAll("button, #receipt, .layout")].flatMap((element) => {
+              if (!(element instanceof HTMLElement) || !element.checkVisibility()) return [];
+              const box = element.getBoundingClientRect();
+              return [`${element.id || element.className} ${box.left},${box.top},${box.width}`];
+            }),
+          );
+        const before = await boxes();
+        await page.getByRole("button", { name }).click();
+        await expect(status(page)).toHaveText("Lien copié.");
+        expect(await boxes(), "statut affiché").toEqual(before);
+        // La place réservée contient tout le texte, coche comprise : rien n'est coupé.
+        const fits = await status(page).evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        );
+        expect(fits).toBe(true);
+        if (name === "Copier le lien du compteur") {
+          await page.getByRole("radio", { name: /Point rapide/u }).click();
+          await page.getByRole("radio", { name: /Aurait pu être un mail/u }).click();
+          await expect(status(page)).toBeEmpty();
+          expect(await boxes(), "statut effacé").toEqual(before);
+        }
+      }
+    });
+  }
+
+  test("Écrans · la coche de « Lien copié » est dessinée mais pas lue", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await openAt(page, METER, S + 600);
+    await copyMeter(page).click();
+    await expect(status(page)).toHaveText("Lien copié.");
+    const check = String.fromCodePoint(0x2713);
+    const drawn = await status(page).evaluate(
+      (element) => getComputedStyle(element, "::before").content,
+    );
+    expect(drawn).toContain(check);
+    expect(await status(page).ariaSnapshot()).toBe("- paragraph: Lien copié.");
+    expect(await page.locator(".actions").ariaSnapshot()).not.toContain(check);
+  });
+
+  test("CA-7 · le <dialog> de repli est décrit par son texte d'explication", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    });
+    await openAt(page, METER, S + 600);
+    await copyMeter(page).click();
+    const dialog = page.getByRole("dialog", { name: "Copiez le lien à la main" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleDescription(/^Le navigateur refuse la copie/u);
+  });
+
+  // Security M4 : un demi-surrogate isolé (collage, saisie par script) faisait lever
+  // « URI malformed » à encodeURIComponent. Un lien ne peut pas en porter (décodage strict).
+  test("Menace · « ab » + U+D800 collé dans le titre puis dans un libellé : retiré, aucune erreur de page", async ({
+    page,
+  }) => {
+    const errors = collectErrors(page);
+    await page.goto(BASE);
+    const paste = (selector: string) =>
+      page.locator(selector).evaluate((element, code) => {
+        if (!(element instanceof HTMLInputElement)) throw new Error("champ attendu");
+        element.focus();
+        element.value = `ab${String.fromCharCode(code)}`;
+        element.dispatchEvent(
+          new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" }),
+        );
+      }, 0xd800);
+    await paste("#title");
+    expect((await query(page)).get("n")).toBe("ab");
+    await paste('[data-slot="who"] >> nth=0');
+    expect((await query(page)).getAll("p")[0]).toBe("68|ab");
+    await expect(page.locator("#form-error")).toBeEmpty();
+    // Puis pendant le Compteur.
+    await page.getByRole("button", { name: /Lancer le compteur/u }).click();
+    await expect(page.getByRole("button", { name: "Terminer" })).toBeVisible();
+    await paste('[data-slot="who"] >> nth=1');
+    expect((await query(page)).getAll("p")[1]).toBe("48|ab");
+    expect(errors).toEqual([]);
+  });
+});

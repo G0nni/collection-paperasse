@@ -276,3 +276,55 @@ describe("sanitizeText · ordre retrait, NFC, trim (forme propre stable)", () =>
     expect(once.value).toBe(once.value.normalize("NFC"));
   });
 });
+
+describe("sanitizeText · demi-surrogates isolés (security M4)", () => {
+  const lone = [0xd800, 0xdbff, 0xdc00, 0xdfff];
+
+  it.each(lone.map((code) => [hex(code), code] as const))(
+    "%s isolé est retiré, et le texte nettoyé passe dans encodeURIComponent",
+    (_label, code) => {
+      for (const input of [`ab${char(code)}`, `${char(code)}ab`, `a${char(code)}b`]) {
+        const result = sanitizeText(input, bounds);
+        expect(result).toEqual({ ok: true, value: "ab" });
+        if (result.ok) expect(encodeURIComponent(result.value)).toBe("ab");
+      }
+    },
+  );
+
+  it("deux demi-surrogates dans le mauvais ordre (bas puis haut) ne forment pas une paire : retirés", () => {
+    expect(sanitizeText(`a${char(0xdc00)}${char(0xd800)}b`, bounds)).toEqual({
+      ok: true,
+      value: "ab",
+    });
+  });
+
+  it("une paire valide (emoji) reste intacte", () => {
+    const party = char(0x1f389);
+    expect(sanitizeText(`ab${party}`, bounds)).toEqual({ ok: true, value: `ab${party}` });
+  });
+
+  it("un texte fait uniquement de demi-surrogates est vide", () => {
+    expect(sanitizeText(char(0xd800) + char(0xd800), bounds)).toEqual({
+      ok: false,
+      reason: "too-short",
+    });
+  });
+
+  it("aucun demi-surrogate ne survit, quelle que soit sa place (balayage de U+D800 à U+DFFF)", () => {
+    let survivor: string | null = null;
+    for (let code = 0xd800; code <= 0xdfff && survivor === null; code += 1) {
+      const result = sanitizeText(`x${char(code)}y${char(code)}`, bounds);
+      if (!result.ok) {
+        survivor = hex(code);
+        continue;
+      }
+      // encodeURIComponent lève sur tout demi-surrogate isolé : c'est le défaut de M4.
+      try {
+        encodeURIComponent(result.value);
+      } catch {
+        survivor = hex(code);
+      }
+    }
+    expect(survivor).toBeNull();
+  });
+});

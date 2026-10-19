@@ -165,6 +165,8 @@ function goTo(next: Meeting, options: { push: boolean; focus: HTMLElement }): vo
  * Configuration aussi) et tout est recalculé depuis `s`.
  */
 function updateMeeting(next: Meeting): void {
+  // « Lien copié » ne vaut plus dès que le lien change : le presse-papiers contient l'ancien.
+  if (buildQuery(next) !== buildQuery(meeting)) copier.clearStatus();
   meeting = next;
   replaceUrl(next);
   renderMeetingFacts();

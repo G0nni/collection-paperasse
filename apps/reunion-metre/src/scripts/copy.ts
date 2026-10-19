@@ -13,6 +13,11 @@ export type CopyView = {
 export type Copier = {
   /** Efface la confirmation et referme le repli (changement d'écran). */
   readonly clear: () => void;
+  /**
+   * Efface la seule confirmation : le lien a changé, le presse-papiers contient l'ancien (spec,
+   * « Écrans »). Le repli, modal, ne peut pas être ouvert pendant une modification.
+   */
+  readonly clearStatus: () => void;
   readonly copy: (link: string, opener: HTMLElement) => Promise<void>;
 };
 
@@ -29,8 +34,12 @@ export function createCopier(view: CopyView): Copier {
     if (target !== null && target.isConnected && !target.hidden) target.focus();
   });
 
-  const clear = () => {
+  const clearStatus = () => {
     view.status.textContent = "";
+  };
+
+  const clear = () => {
+    clearStatus();
     if (view.dialog.open) view.dialog.close();
   };
 
@@ -54,5 +63,5 @@ export function createCopier(view: CopyView): Copier {
     }
   };
 
-  return { clear, copy };
+  return { clear, clearStatus, copy };
 }

@@ -3,9 +3,13 @@
  * - contrôles C0/C1 (`\p{Cc}`, dont le caractère nul) ;
  * - tous les contrôles bidirectionnels (`\p{Bidi_Control}` : U+061C, U+200E, U+200F,
  *   U+202A à U+202E, U+2066 à U+2069), qui servent à retourner visuellement un texte. Une liste
- *   écrite à la main en oubliait (U+061C) : la propriété Unicode suit les versions du standard.
+ *   écrite à la main en oubliait (U+061C) : la propriété Unicode suit les versions du standard ;
+ * - les demi-surrogates isolés (`\p{Cs}`, U+D800 à U+DFFF hors paire) : ils ne sont pas de
+ *   l'Unicode valide et `encodeURIComponent` lève « URI malformed » dessus. Un champ de saisie
+ *   peut en recevoir (collage, saisie par script) ; une paire valide (emoji) n'est pas touchée,
+ *   le drapeau `u` la lit comme un seul point de code.
  */
-const FORBIDDEN_CHARS = /[\p{Cc}\p{Bidi_Control}]/gu;
+const FORBIDDEN_CHARS = /[\p{Cc}\p{Cs}\p{Bidi_Control}]/gu;
 
 /**
  * Un caractère visible : lettre, chiffre, ponctuation ou symbole, à condition de ne pas être

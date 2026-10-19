@@ -1,4 +1,32 @@
-# Rapport reunion-metre · tour 3 (dernier tour)
+# Rapport reunion-metre · passage final (après le tour 3)
+
+## Verdict
+
+**Fini.** Les 6 points de la définition de « fini » sont vrais :
+
+1. CA-1 à CA-12 couverts et verts.
+2. CL-1 à CL-11 couverts et verts.
+3. `pnpm verify` vert (1018 e2e, 144 sautés volontairement ; 187 unitaires du look, 300 de
+   shared), confirmé par la CI sur la PR.
+4. Reviewer : plus de bloquant (le seul restant au tour 3, les noms coupés, est corrigé).
+5. Security : aucun point critique ou élevé ; M4 (demi-surrogate) corrigé.
+6. Axe : 0 violation sur les écrans de la spec.
+
+Passage final, décidé avec Gonni après le tour 3 :
+
+- CA-12 : colonnes de la liste selon la largeur de la liste (container query) ; noms lisibles en
+  entier de 360 à 1280 px, testé à 8 tailles, CA-11 toujours tenu à 1280×720.
+- Statut « Lien copié » effacé au changement de lien, largeur réservée (boutons fixes), coche non
+  lue, `aria-describedby` sur le dialogue.
+- Test lent ramené de 3,1 s à 29 ms sans rien perdre.
+- `sanitizeText` (partagé) retire `\p{Cs}` : plus d'exception sur un demi-surrogate collé.
+
+Restent ouverts (non bloquants) : Lighthouse non mesuré ici ; entre 874 et 959 px, deux colonnes
+avec environ 206 px par champ (lisible pour 18 caractères, peu de marge pour des lettres larges).
+
+---
+
+# Historique : rapport du tour 3
 
 ## Ce qui bloque
 

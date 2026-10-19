@@ -3478,34 +3478,86 @@ test.describe("reunion-metre · tester · tour 3", () => {
   });
 
   // -------------------------------------------------------------------------------------------
-  // Règle 5 (CLAUDE.md) · lisibilité des participants sur le Compteur, fenêtre en demi-écran
+  // CA-12 (et règle 5 de CLAUDE.md) · libellés des participants lisibles sur le Compteur
   // -------------------------------------------------------------------------------------------
 
   // 960×1000 : fenêtre calée sur la moitié d'un écran 1920×1080, le Compteur à côté du chat de la
   // réunion (l'usage décrit en tête de spec). 1024×768 : petit portable, tablette en paysage.
-  // À 360 px, les mêmes libellés se lisent en entier : le défaut tient à la mise en page.
-  for (const [width, height] of [
+  // 640×800 et 768×1000 : tablettes en portrait, juste au-dessus du passage à une colonne de
+  // champs. 1093×614 : 1366×768 à 125 %. 1100×720 : la liste à côté du ticket, encore trop
+  // étroite pour deux colonnes. 1280×720 : contrôle, deux colonnes et CA-11.
+  const CA12_SIZES = [
+    [360, 780],
+    [640, 800],
+    [768, 1000],
     [960, 1000],
     [1024, 768],
-  ] as const) {
-    test(`Règle 5 · Compteur ${width}×${height} : les libellés de l'exemple de la spec (16 à 18 caractères) se lisent en entier dans leur champ « Qui »`, async ({
-      page,
-    }, testInfo) => {
-      test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
-      await page.setViewportSize({ width, height });
-      await openFixed(page, query({ s: NOW - 600 }));
-      await expectCounter(page);
-      const cut = await whoFields(page).evaluateAll((fields) =>
-        fields.flatMap((field) =>
-          field instanceof HTMLInputElement && field.scrollWidth > field.clientWidth + 1
-            ? [
-                `« ${field.value} » : ${field.clientWidth} px affichés pour ${field.scrollWidth} px de texte`,
-              ]
-            : [],
-        ),
-      );
-      expect(cut).toEqual([]);
-    });
+    [1093, 614],
+    [1100, 720],
+    [1280, 720],
+  ] as const;
+
+  /** 8 participants aux libellés de 7 à 18 caractères, ceux de l'exemple de la spec en tête. */
+  const CA12_CREW: readonly Member[] = [
+    ...SPEC_TEAM,
+    { label: "Consultant externe", rate: 120 },
+    { label: "Patrick", rate: 55 },
+    { label: "Kevin du marketing", rate: 48 },
+    { label: "Cheffe de projet", rate: 68 },
+    { label: "Consultant externe", rate: 120 },
+  ];
+
+  for (const [width, height] of CA12_SIZES) {
+    for (const [label, link, count] of [
+      ["exemple de la spec", query({ s: NOW - 600 }), 3],
+      [
+        "8 participants + messages du lien",
+        query({ t: "Z", team: CA12_CREW, raw: ["p=12.5|x"], s: NOW - 600, e: "fin" }),
+        8,
+      ],
+    ] as const) {
+      test(`CA-12 · Compteur ${width}×${height}, ${label} : chaque libellé (jusqu'à 18 caractères) se lit en entier dans son champ « Qui »`, async ({
+        page,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== FIXED_VIEWPORT_PROJECT, "viewport fixé par le test");
+        await page.setViewportSize({ width, height });
+        await openFixed(page, link);
+        await expectCounter(page);
+        await expect(whoFields(page)).toHaveCount(count);
+        const cut = await whoFields(page).evaluateAll((fields) =>
+          fields.flatMap((field) =>
+            field instanceof HTMLInputElement &&
+            (field.clientWidth === 0 || field.scrollWidth > field.clientWidth + 1)
+              ? [
+                  `« ${field.value} » : ${field.clientWidth} px affichés pour ${field.scrollWidth} px de texte`,
+                ]
+              : [],
+          ),
+        );
+        expect(cut).toEqual([]);
+        // Le champ lui-même n'est pas rogné sur le côté par la liste ou le panneau.
+        for (const field of await whoFields(page).all()) {
+          const clipped = await field.evaluate((element) => {
+            const box = element.getBoundingClientRect();
+            for (
+              let parent = element.parentElement;
+              parent !== null;
+              parent = parent.parentElement
+            ) {
+              if (getComputedStyle(parent).overflowX === "visible") continue;
+              const frame = parent.getBoundingClientRect();
+              if (box.left < frame.left - 1 || box.right > frame.right + 1) return parent.nodeName;
+            }
+            return null;
+          });
+          expect(clipped, await field.inputValue()).toBeNull();
+        }
+        if (width === 1280 && height === 720 && count === 8) {
+          // Contrôle CA-11 : 8 participants et les messages du lien, rien ne défile.
+          expect(await scrollingParts(page)).toEqual([]);
+        }
+      });
+    }
   }
 
   // -------------------------------------------------------------------------------------------

@@ -459,7 +459,11 @@ function layoutProblems(root: Element): string[] {
     const path = href.startsWith("#") ? document.getElementById(href.slice(1)) : null;
     const text = ring.closest("text");
     if (path instanceof SVGPathElement && text instanceof SVGTextElement) {
-      const length = text.getComputedTextLength();
+      // Longueur rendue : `textLength` si l'attribut impose une longueur (le navigateur
+      // resserre alors l'espacement), sinon la longueur naturelle (`getComputedTextLength`,
+      // que la propriété reflète par défaut). La longueur naturelle seule dépend de la police
+      // et de la version du navigateur, et ignore `textLength`.
+      const length = text.textLength.baseVal.value;
       if (length > path.getTotalLength() + 0.5) {
         problems.push(
           `texte circulaire du sceau tronqué (${length.toFixed(1)} > ${path.getTotalLength().toFixed(1)})`,

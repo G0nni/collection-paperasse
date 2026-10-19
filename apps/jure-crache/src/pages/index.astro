@@ -360,7 +360,10 @@ const stubs = [
                   fill="none"
                   stroke-width="1.5"
                 ></circle>
-                <text class="seal-ring">
+                <!-- textLength : le texte fait toujours le tour exact du cercle (2π × 44 ≈ 276,5,
+                     moins un espace avant « PAS »), quelle que soit la largeur réelle de la police.
+                     Sans lui, Chromium 156 mesure 289,8 et coupe « SÉRIEUX ». -->
+                <text class="seal-ring" textLength="272" lengthAdjust="spacing">
                   <textPath href="#seal-ring">{TEXT.sealRing}</textPath>
                 </text>
                 <text class="seal-mark" x="75" y="88" text-anchor="middle">

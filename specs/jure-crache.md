@@ -11,7 +11,8 @@
 2. **Acte** (hash valide, pas de verdict) : l'acte complet, compte à rebours, boutons « Copier
    le lien de l'acte », « Imprimer », « Déclarer le vainqueur ».
 3. **Acte jugé** (hash valide + verdict) : même acte, tampon VAINQUEUR (ou MATCH NUL) sur le nom,
-   compte à rebours remplacé par « Jugé le … ».
+   compte à rebours remplacé par « Verdict déclaré. Échéance du pari : <date> ». Le lien ne porte
+   pas la date du verdict : l'app n'en affiche aucune.
 
 ## Format d'URL (fait foi)
 
@@ -37,15 +38,21 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 
 - Tous les textes : trim, caractères de contrôle et bidirectionnels retirés, puis vérification
   des bornes. Clé inconnue → acte refusé. Clé manquante → acte refusé.
-- Payload décompressé > 4 Ko, JSON invalide, lz-string qui renvoie `null` ou `""` → écran
+- Payload décompressé > 4 Ko (mesuré en unités UTF-16, `decoded.length` : un acte aux bornes
+  tient toujours, emoji compris), JSON invalide, lz-string qui renvoie `null` ou `""` → écran
   « Acte illisible » avec bouton « Rédiger un nouvel acte ».
 
 ## Empreinte et numéro d'acte
 
 - `empreinte = SHA-256(JSON canonique de acte)` via `crypto.subtle.digest`. JSON canonique =
   clés dans l'ordre `p, c, o, e, a, d, t`, sans espace.
-- Numéro affiché : `N° AAAA-XXXX-XXXX` où `AAAA` = année de `t` et `XXXX-XXXX` = 8 premiers
-  caractères hexadécimaux de l'empreinte, en majuscules.
+- Numéro affiché : `N° AAAA-` suivi des 128 premiers bits de l'empreinte en base32 Crockford
+  (26 caractères, alphabet `0-9 A-Z` sans `I L O U`), groupés par 4 avec des tirets
+  (`N° 2026-K7QM-4XRT-…`). `AAAA` = année UTC de `t`. Pourquoi 128 bits : à 32 bits, copier le
+  numéro d'un acte existant coûtait quelques minutes (security, tour 1) ; à 64 bits, l'auteur
+  pouvait encore préparer deux versions au même numéro en ~2^32 calculs (paradoxe des
+  anniversaires, security, tour 2). À 128 bits, les deux attaques sont hors de portée. Le numéro
+  détecte la retouche, il ne prouve rien juridiquement (pied d'acte).
 - La couleur de la cire est choisie dans une palette fixe de 4 teintes à partir de l'empreinte.
 - Les signatures sont des tracés SVG générés de façon déterministe à partir du nom (même nom →
   même gribouillis).
@@ -64,14 +71,28 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 - **CA-5** « Déclarer le vainqueur » propose parieur / contre-parieur / match nul dans une boîte
   de dialogue accessible (`<dialog>`, focus piégé, Échap ferme), puis ajoute le suffixe au hash.
 - **CA-6** « Imprimer » ouvre l'impression ; la feuille de style d'impression tient l'acte sur une
-  page A4 sans les boutons.
-- **CA-7** « Copier le lien » : même comportement que Réunion-mètre CA-7.
+  page A4 sans les boutons, sans page blanche, pour tout acte qui respecte les bornes, y compris
+  en idéogrammes. Chaque texte libre a un plafond de hauteur en impression : au-delà (lien forgé
+  avec des glyphes très larges), il est coupé, jamais reporté sur une 2e page. Le pied d'acte est
+  en plus répété en marge basse de chaque page imprimée (`@page`), pour qu'aucune page « officielle »
+  ne sorte sans lui. Seul l'A4 est garanti (`size: A4`). Le pied en marge n'apparaît que sur les
+  pages de l'acte (page nommée), pas en imprimant la Rédaction ou un écran de refus.
+- **CA-7** « Copier le lien » : même comportement que le Réunion-mètre (CA-7 et section Écrans) :
+  copie de l'URL courante, confirmation annoncée à côté du bouton qui s'efface si le lien change,
+  et repli dans un `<dialog>` modal (champ sélectionné, Fermer, Échap, focus rendu) si le
+  presse-papiers est refusé.
 - **CA-8** Un pied d'acte permanent indique « Acte sans aucune valeur juridique. Juré, craché. »
 - **CA-9** Le `CollectionTag` affiche « Look 02/03 ».
 - **CA-10** Le formulaire propose 3 articles par défaut : retard > 10 min ; « j'suis en bas » ne
   vaut pas arrivée ; toute excuse impliquant la SNCF est examinée par le tribunal des potes.
+- **CA-11** De 360 à 1280 px (dont 640, 768, 960, 1024 et 1093×614), l'acte reste lisible : aucun
+  texte de l'acte coupé ou recouvert, sceau et signatures ne masquent rien, pas de défilement
+  horizontal. Textes libres nettoyés par `sanitizeText` (CLAUDE.md, Sécurité).
 
 ## Cas limites
+
+- **CL-9** Acte dans les bornes dont le lien dépasserait 4 Ko bruts (beaucoup de caractères
+  rares) → refusé au formulaire, erreur sur le texte le plus lourd une fois compressé, focus dessus.
 
 - **CL-1** Hash `#1.` vide, `#2.xxx` (version inconnue), `#1.xxx.z` (verdict inconnu) →
   respectivement Rédaction, « Acte d'une version inconnue », acte sans verdict.
@@ -115,3 +136,13 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 - Verdict déclaratif, hors empreinte (sinon il faudrait un serveur pour savoir qui a le droit de
   juger).
 - Les dates sont affichées dans le fuseau de l'appareil qui regarde, en `fr-FR`.
+- Décisions de l'orchestrateur après le tour 1 (à confirmer) : « Verdict déclaré » sans date ;
+  numéro élargi (64 bits, puis 128 bits au tour 2) ; 4 Ko en unités UTF-16 ; impression bornée à une page avec pied répété ;
+  forme propre réécrite (`replaceState`) sauf lien illisible ou de version inconnue ; Rédaction
+  vide avec échéance proposée à J+7, 20 h, et les 3 articles par défaut ; boutons « Nouvel acte »
+  et « Modifier le verdict » ; année du numéro en UTC (même numéro dans tous les fuseaux).
+- Dates : « 1er » pour le premier du mois (« 1er janvier 2027 »), `Intl` ne le fait pas.
+- Heure qui existe deux fois (passage à l'heure d'hiver) : la première occurrence est retenue.
+- Numéro sur 128 bits en base32 (décision de l'orchestrateur après le tour 2, à confirmer par
+  Gonni : l'alternative est de garder 64 bits et d'assumer qu'un auteur peut préparer deux
+  versions au même numéro).

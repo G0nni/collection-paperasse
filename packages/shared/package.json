@@ -5,9 +5,12 @@
   "type": "module",
   "exports": {
     "./config": "./src/config.ts",
+    "./copy": "./src/copy.ts",
+    "./dom": "./src/dom.ts",
     "./look-config": "./src/look-config.ts",
     "./looks": "./src/looks.ts",
     "./text": "./src/text.ts",
+    "./ticker": "./src/ticker.ts",
     "./typography": "./src/typography.ts",
     "./url": "./src/url.ts",
     "./CollectionTag.astro": "./src/CollectionTag.astro"

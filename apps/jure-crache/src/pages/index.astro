@@ -1,42 +1,1609 @@
 ---
-// Page provisoire : le builder la remplace en suivant specs/jure-crache.md.
+// Look 02 · Juré Craché (specs/jure-crache.md). Une seule page, trois écrans (Rédaction, Acte,
+// Acte jugé) et deux refus (Acte illisible, version inconnue), choisis par le script d'après
+// le hash. Le HTML livré ne contient aucune donnée d'acte : tout texte venant du lien est écrit
+// par le script, en textContent. La mise en page est fixe : un lien ne peut ni ajouter de bloc
+// ni changer un libellé (spec, « Modèle de menace »).
+import "@fontsource/young-serif/400.css";
+import "@fontsource/special-elite/400.css";
+import "@fontsource/spectral/400.css";
+import "@fontsource/spectral/400-italic.css";
+import "@fontsource/spectral/600.css";
 import CollectionTag from "@paperasse/shared/CollectionTag.astro";
+import { TEXT } from "../lib/messages";
+import { SIGNATURE_BOX } from "../lib/signature";
+
+// Rosace guillochée (module signature) : deux couronnes d'ellipses tournées, comme la maquette.
+const outerRing = Array.from({ length: 12 }, (_, index) => index * 15);
+const innerRing = Array.from({ length: 6 }, (_, index) => 7 + index * 30);
+const signatureViewBox = `0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`;
+const stubs = [
+  { id: "stub-days", unit: "jours" },
+  { id: "stub-hours", unit: "heures" },
+  { id: "stub-minutes", unit: "min" },
+  { id: "stub-seconds", unit: "sec" },
+];
 ---
 
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Juré Craché · Collection Paperasse</title>
-    <meta name="description" content="Étude notariale fondée dans la cour de récré." />
+    <title>{TEXT.pageTitle}</title>
+    <meta name="description" content={TEXT.description} />
   </head>
   <body>
-    <main>
-      <p class="look">Look 02</p>
-      <h1>Juré Craché</h1>
-      <p>Look en cours de couture. Revenez après le défilé.</p>
+    <main id="app" data-screen="loading">
+      {/* Bloc sans gap : la région live vide des messages n'y prend aucune place, et reste dans
+          l'arbre d'accessibilité pour que ses messages soient annoncés. */}
+      <div class="top">
+        <header class="masthead">
+          <div class="brand">
+            <h1>{TEXT.heading}</h1>
+            <p class="tagline">{TEXT.tagline}</p>
+          </div>
+          <button type="button" class="button button-secondary" id="new-deed" hidden>
+            {TEXT.newDeed}
+          </button>
+        </header>
+        {/* Messages du lien (verdict inconnu). */}
+        <div class="notices">
+          <div role="status">
+            <ul class="notices-list" id="notices"></ul>
+          </div>
+          <button type="button" class="button button-secondary" id="dismiss-notices" hidden>
+            {TEXT.dismiss}
+            <span class="visually-hidden">{` ${TEXT.dismissContext}`}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ---------- Écran 1 : Rédaction ---------- */}
+      <section class="screen" id="draft" aria-labelledby="draft-heading" hidden>
+        <form class="paper" id="draft-form" aria-labelledby="draft-heading" novalidate>
+          <div class="frame">
+            <div class="draft-head">
+              <h2 class="sheet-title" id="draft-heading" tabindex="-1">
+                {TEXT.draftHeading}
+              </h2>
+              <p class="intro">{TEXT.draftIntro}</p>
+            </div>
+
+            <div class="parties">
+              <p class="field">
+                <label class="label" for="bettor">
+                  {TEXT.bettorLabel}
+                </label>
+                <input
+                  class="typed-input"
+                  id="bettor"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder={TEXT.bettorPlaceholder}
+                  aria-describedby="bettor-error"
+                />
+                <span class="error" id="bettor-error"></span>
+              </p>
+              <p class="field">
+                <label class="label" for="opponent">
+                  {TEXT.opponentLabel}
+                </label>
+                <input
+                  class="typed-input"
+                  id="opponent"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder={TEXT.opponentPlaceholder}
+                  aria-describedby="opponent-error"
+                />
+                <span class="error" id="opponent-error"></span>
+              </p>
+            </div>
+
+            <p class="field">
+              <label class="label" for="subject">
+                {TEXT.subjectLabel}
+              </label>
+              <textarea
+                class="typed-input typed-area"
+                id="subject"
+                rows="2"
+                spellcheck="false"
+                placeholder={TEXT.subjectPlaceholder}
+                aria-describedby="subject-error"
+              ></textarea>
+              <span class="error" id="subject-error"></span>
+            </p>
+
+            <p class="field">
+              <label class="label" for="stake">
+                {TEXT.stakeLabel}
+              </label>
+              <textarea
+                class="typed-input typed-area"
+                id="stake"
+                rows="1"
+                spellcheck="false"
+                placeholder={TEXT.stakePlaceholder}
+                aria-describedby="stake-error"
+              ></textarea>
+              <span class="error" id="stake-error"></span>
+            </p>
+
+            <fieldset class="articles-field" aria-describedby="articles-hint">
+              <legend class="label">{TEXT.articlesLegend}</legend>
+              <p class="hint" id="articles-hint">
+                {TEXT.articlesHint}
+              </p>
+              <ol class="article-rows" id="article-rows" role="list"></ol>
+              <p class="articles-footer">
+                <button type="button" class="button button-secondary" id="add-article">
+                  {TEXT.addArticle}
+                </button>
+                <span class="hint" id="articles-full" hidden>
+                  {TEXT.articlesFull}
+                </span>
+              </p>
+            </fieldset>
+
+            <p class="field deadline-field">
+              <label class="label" for="deadline">
+                {TEXT.deadlineLabel}
+              </label>
+              <input
+                class="typed-input"
+                id="deadline"
+                type="datetime-local"
+                aria-describedby="deadline-hint deadline-error"
+              />
+              <span class="hint" id="deadline-hint">
+                {TEXT.deadlineHint}
+              </span>
+              <span class="error" id="deadline-error"></span>
+            </p>
+
+            {/* Bloc sans gap : l'erreur vide n'y prend aucune place mais reste une région live. */}
+            <div class="seal-block">
+              <p class="error form-error" id="form-error" aria-live="polite"></p>
+              <button type="submit" class="button button-primary" id="seal-deed">
+                {TEXT.seal}
+              </button>
+            </div>
+            <p class="footnote">{TEXT.footer}</p>
+          </div>
+        </form>
+      </section>
+
+      {/* ---------- Écrans 2 et 3 : l'Acte, jugé ou non ---------- */}
+      <section class="screen" id="deed-screen" aria-labelledby="deed-title" hidden>
+        <p class="unsealed" id="unsealed" hidden>
+          {TEXT.unsealed}
+        </p>
+
+        <article class="paper deed" id="deed" aria-labelledby="deed-title">
+          <div class="frame">
+            <header class="deed-head">
+              <svg
+                class="rosace"
+                aria-hidden="true"
+                viewBox="0 0 300 180"
+                fill="none"
+                stroke-width="0.6"
+              >
+                <g transform="translate(150 90)">
+                  {outerRing.map((angle) => (
+                    <ellipse rx="130" ry="36" transform={`rotate(${angle})`} />
+                  ))}
+                  {innerRing.map((angle) => (
+                    <ellipse rx="70" ry="22" transform={`rotate(${angle})`} />
+                  ))}
+                </g>
+              </svg>
+              <div class="title-block">
+                <p class="republic">{TEXT.republic}</p>
+                <h2 class="deed-title" id="deed-title" tabindex="-1">
+                  {TEXT.deedTitle}
+                </h2>
+                <p class="deed-meta">
+                  <span class="deed-number" id="deed-number"></span>
+                  <span id="deed-registered"></span>
+                </p>
+              </div>
+            </header>
+
+            <div class="parties">
+              <section class="party" aria-labelledby="bettor-role">
+                <h3 class="label" id="bettor-role">
+                  {TEXT.bettorRole}
+                </h3>
+                <div class="name-line">
+                  <p class="typed name free-text" id="deed-bettor"></p>
+                  <p class="stamp" id="stamp-bettor" hidden></p>
+                </div>
+              </section>
+              <section class="party" aria-labelledby="opponent-role">
+                <h3 class="label" id="opponent-role">
+                  {TEXT.opponentRole}
+                </h3>
+                <div class="name-line">
+                  <p class="typed name free-text" id="deed-opponent"></p>
+                  <p class="stamp" id="stamp-opponent" hidden></p>
+                </div>
+              </section>
+            </div>
+
+            <section class="clause" aria-labelledby="subject-heading">
+              <h3 class="label" id="subject-heading">
+                {TEXT.subjectHeading}
+              </h3>
+              <p class="typed subject free-text" id="deed-subject"></p>
+            </section>
+
+            <section class="clause" aria-labelledby="stake-heading">
+              <h3 class="label" id="stake-heading">
+                {TEXT.stakeHeading}
+              </h3>
+              <p class="typed stake free-text" id="deed-stake"></p>
+            </section>
+
+            <section class="articles" aria-labelledby="articles-heading">
+              <h3 class="visually-hidden" id="articles-heading">
+                {TEXT.articlesHeading}
+              </h3>
+              <ol class="article-list" id="deed-articles" role="list"></ol>
+              <p class="no-articles" id="no-articles" hidden>
+                {TEXT.noArticles}
+              </p>
+            </section>
+
+            <section class="deadline" aria-labelledby="deadline-heading">
+              <h3 class="label" id="deadline-heading">
+                {TEXT.deadlineHeading}
+              </h3>
+              <p class="deadline-line" id="deadline-line"></p>
+              {/* Le résumé accessible est dans aria-label (au plus toutes les 30 s) : les
+                  chiffres qui changent chaque seconde sont masqués aux lecteurs d'écran. */}
+              <div class="countdown-wrap" id="countdown-wrap">
+                <div class="countdown" id="countdown" role="timer" aria-live="off">
+                  {stubs.map((stub) => (
+                    <div class="stub">
+                      <span class="stub-value" id={stub.id} aria-hidden="true">
+                        00
+                      </span>
+                      <span class="stub-unit" aria-hidden="true">
+                        {stub.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Région live toujours présente, vide tant que l'échéance n'est pas passée. */}
+              <p class="passed" id="passed" role="status"></p>
+              <div class="judged" id="judged" tabindex="-1" hidden>
+                <p class="judged-line" id="judged-line"></p>
+                <p class="verdict-line free-text" id="verdict-line"></p>
+                <p class="verdict-note">{TEXT.verdictNote}</p>
+              </div>
+            </section>
+
+            <div class="signoff">
+              <div class="signatures">
+                <figure class="signature">
+                  <svg
+                    class="signature-trace"
+                    aria-hidden="true"
+                    viewBox={signatureViewBox}
+                    fill="none"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path id="signature-bettor" d="M0 0"></path>
+                  </svg>
+                  <figcaption>{TEXT.signatureBettor}</figcaption>
+                </figure>
+                <figure class="signature">
+                  <svg
+                    class="signature-trace"
+                    aria-hidden="true"
+                    viewBox={signatureViewBox}
+                    fill="none"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path id="signature-opponent" d="M0 0"></path>
+                  </svg>
+                  <figcaption>{TEXT.signatureOpponent}</figcaption>
+                </figure>
+              </div>
+              {/* Sceau de cire : bord irrégulier (trait épais en pointillés arrondis), texte
+                  circulaire. La teinte vient de l'empreinte, par une classe de palette. */}
+              <svg
+                class="seal"
+                id="seal"
+                role="img"
+                aria-label={TEXT.sealLabel}
+                viewBox="0 0 150 150"
+                data-wax="0"
+              >
+                <defs>
+                  <path
+                    id="seal-ring"
+                    d="M75 75 m -44 0 a 44 44 0 1 1 88 0 a 44 44 0 1 1 -88 0"
+                  ></path>
+                </defs>
+                <circle
+                  class="wax"
+                  cx="75"
+                  cy="75"
+                  r="62"
+                  stroke-width="12"
+                  stroke-dasharray="7 5"
+                  stroke-linecap="round"
+                ></circle>
+                <circle
+                  class="wax-line"
+                  cx="75"
+                  cy="75"
+                  r="54"
+                  fill="none"
+                  stroke-width="2"
+                ></circle>
+                <circle
+                  class="wax-line"
+                  cx="75"
+                  cy="75"
+                  r="30"
+                  fill="none"
+                  stroke-width="1.5"
+                ></circle>
+                <!-- textLength : le texte fait toujours le tour exact du cercle (2π × 44 ≈ 276,5,
+                     moins un espace avant « PAS »), quelle que soit la largeur réelle de la police.
+                     Sans lui, Chromium 156 mesure 289,8 et coupe « SÉRIEUX ». -->
+                <text class="seal-ring" textLength="272" lengthAdjust="spacing">
+                  <textPath href="#seal-ring">{TEXT.sealRing}</textPath>
+                </text>
+                <text class="seal-mark" x="75" y="88" text-anchor="middle">
+                  {TEXT.sealMark}
+                </text>
+              </svg>
+            </div>
+
+            <p class="deed-footer">{TEXT.footer}</p>
+          </div>
+        </article>
+
+        <div class="actions">
+          {/* Confirmation de copie, juste à gauche du bouton : jamais par-dessus l'acte. Sa place
+              est réservée, vide ou pleine : les boutons ne bougent pas quand elle apparaît. */}
+          <p class="copy-status" id="copy-status" aria-live="polite"></p>
+          <button type="button" class="button button-secondary" id="copy">
+            {TEXT.copy}
+          </button>
+          <button type="button" class="button button-secondary" id="print">
+            {TEXT.print}
+          </button>
+          <button type="button" class="button button-primary" id="declare">
+            {TEXT.declare}
+          </button>
+        </div>
+      </section>
+
+      {/* ---------- Liens refusés : illisible, version inconnue ---------- */}
+      <section class="screen refused" id="refused" aria-labelledby="refused-title" hidden>
+        <div class="paper">
+          <div class="frame">
+            <h2 class="sheet-title" id="refused-title" tabindex="-1"></h2>
+            <p id="refused-text"></p>
+            <p class="refused-detail" id="refused-detail"></p>
+            <p>
+              <button type="button" class="button button-primary" id="restart">
+                {TEXT.restart}
+              </button>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <noscript>
+        <p class="paper noscript">{TEXT.noScript}</p>
+      </noscript>
     </main>
+
+    {/* Verdict (CA-5) : modal, Échap ou « Annuler » le referment sans rien changer. */}
+    <dialog
+      class="dialog"
+      id="verdict-dialog"
+      aria-labelledby="verdict-title"
+      aria-describedby="verdict-text"
+    >
+      <h2 class="dialog-title" id="verdict-title">
+        {TEXT.verdictDialogTitle}
+      </h2>
+      <p class="dialog-text" id="verdict-text">
+        {TEXT.verdictDialogText}
+      </p>
+      <form class="verdict-choices" method="dialog">
+        <button type="submit" class="choice" value="p">
+          <span class="choice-role">{TEXT.bettorRole}</span>{" "}
+          <span class="choice-name free-text" id="choice-bettor"></span>
+        </button>
+        <button type="submit" class="choice" value="c">
+          <span class="choice-role">{TEXT.opponentRole}</span>{" "}
+          <span class="choice-name free-text" id="choice-opponent"></span>
+        </button>
+        <button type="submit" class="choice" value="n">
+          <span class="choice-name">{TEXT.draw}</span>
+        </button>
+        <button type="submit" class="button button-secondary cancel" value="cancel">
+          {TEXT.cancel}
+        </button>
+      </form>
+    </dialog>
+
+    {/* Repli de copie (CA-7) : modal, Échap ou « Fermer » le referment, le focus revient au
+        bouton de copie (packages/shared/src/copy.ts). */}
+    <dialog
+      class="dialog"
+      id="copy-dialog"
+      aria-labelledby="copy-dialog-title"
+      aria-describedby="copy-dialog-text"
+    >
+      <h2 class="dialog-title" id="copy-dialog-title">
+        {TEXT.copyDialogTitle}
+      </h2>
+      <p class="dialog-text" id="copy-dialog-text">
+        {TEXT.copyRefused}
+      </p>
+      <p class="copy-dialog-field">
+        <label class="label" for="copy-field">
+          {TEXT.linkField}
+        </label>
+        <input id="copy-field" type="text" readonly spellcheck="false" autocomplete="off" />
+      </p>
+      <form class="dialog-actions" method="dialog">
+        <button type="submit" class="button button-secondary">
+          {TEXT.close}
+        </button>
+      </form>
+    </dialog>
+
     <CollectionTag slug="jure-crache" />
+
+    {/* Une ligne d'article du formulaire, clonée par le script (pas d'innerHTML). */}
+    <template id="article-template">
+      <li class="article-row">
+        <p class="field">
+          <label class="label" data-slot="label"></label>
+          <textarea
+            class="typed-input typed-area article-input"
+            data-slot="text"
+            rows="2"
+          ></textarea>
+          <span class="error" data-slot="error"></span>
+        </p>
+        <button type="button" class="button button-secondary remove" data-slot="remove">
+          {TEXT.remove}
+          <span class="visually-hidden" data-slot="remove-context"></span>
+        </button>
+      </li>
+    </template>
   </body>
 </html>
 
+<script>
+  import "../scripts/app";
+</script>
+
 <style is:global>
+  /* Tokens de specs/jure-crache.md (« Design »). */
+  :root {
+    --bg: #dce4d8;
+    --paper: #f7f9f3;
+    --ink: #1e4636;
+    --wax: #9e2a24;
+    --on-wax: #f6e3d8;
+    /* Ligne guillochée du papier, et texte secondaire (≥ 4.5:1 sur le papier). */
+    --guilloche: rgb(30 70 54 / 0.05);
+    --muted: #4a6356;
+    --font-title: "Young Serif", Georgia, serif;
+    --font-typed: "Special Elite", "Courier New", monospace;
+    --font-legal: "Spectral", Georgia, serif;
+    /* Étiquette de collection : papier et encre verte. */
+    --tag-bg: var(--paper);
+    --tag-fg: var(--ink);
+    color-scheme: light;
+  }
+
+  html {
+    background: var(--bg);
+  }
+
   body {
     margin: 0;
-    padding: 2rem 1rem;
-    font-family: system-ui, sans-serif;
-    background: #ffffff;
-    color: #0e0e0e;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-legal);
+    font-size: 1.0625rem;
+    line-height: 1.5;
   }
 
+  /* `hidden` gagne toujours sur les display posés par les styles du look. */
+  [hidden] {
+    display: none !important;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--ink);
+    outline-offset: 3px;
+  }
+</style>
+
+<style>
   main {
-    max-width: 40rem;
+    box-sizing: border-box;
+    max-width: 61.25rem;
     margin: 0 auto;
+    padding: 1.75rem 1rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
   }
 
-  .look {
-    font-family: ui-monospace, monospace;
+  /* ---------- En-tête ---------- */
+
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+  }
+
+  .brand {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.875rem;
+    min-width: 0;
+  }
+
+  h1 {
+    margin: 0;
+    font-family: var(--font-title);
+    font-weight: 400;
+    font-size: 1.625rem;
+    line-height: 1.4;
+  }
+
+  .tagline {
+    margin: 0;
+    font-style: italic;
+    font-size: 0.9375rem;
+  }
+
+  /* ---------- Boutons ---------- */
+
+  .button {
+    box-sizing: border-box;
+    min-height: 48px;
+    padding: 0.375rem 1.25rem;
+    border: 1.5px solid var(--ink);
+    border-radius: 0;
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+
+  .button-primary {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .button-secondary {
+    background: transparent;
+    color: var(--ink);
+  }
+
+  /* Survol : le trait change de forme, jamais la couleur seule. */
+  .button-primary:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .button-secondary:hover {
+    border-style: dashed;
+  }
+
+  .button:disabled {
+    cursor: not-allowed;
+    border-style: dotted;
+  }
+
+  /* ---------- Messages du lien ---------- */
+
+  /* Le cadre n'apparaît qu'avec un message : vide, le bloc n'a aucune hauteur. */
+  .notices:has(li) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-top: 1rem;
+    padding: 0.5rem 0.75rem 0.5rem 1rem;
+    border: 2px dashed var(--ink);
+    background: var(--paper);
+  }
+
+  .notices-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-weight: 600;
+  }
+
+  .screen {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-width: 0;
+  }
+
+  /* ---------- Papier (formulaire, acte, refus) ---------- */
+
+  .paper {
+    margin: 0;
+    padding: 10px;
+    border: 1px solid var(--ink);
+    background: var(--paper)
+      repeating-radial-gradient(circle at 50% 0, transparent 0 7px, var(--guilloche) 7px 8px);
+    box-shadow: 0 20px 50px rgb(20 50 35 / 0.16);
+  }
+
+  /* Cadre double filet (module signature). */
+  .frame {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    min-width: 0;
+    padding: clamp(1.25rem, 5vw, 3.5rem);
+    border: 4px double var(--ink);
+  }
+
+  .label {
+    margin: 0;
+    font-family: var(--font-legal);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  /* Textes libres venant du lien : coupés où il faut (CL-7) et contenus dans leur boîte, pour
+     qu'un texte « zalgo » ou sans espace ne recouvre rien et n'élargisse pas la page
+     (CLAUDE.md, Sécurité). La petite marge laisse respirer les accents légitimes. */
+  .free-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    overflow: clip;
+    overflow-clip-margin: 0.2em;
+  }
+
+  .sheet-title {
+    margin: 0;
+    font-family: var(--font-title);
+    font-weight: 400;
+    font-size: clamp(1.75rem, 4.5vw, 2.5rem);
+    line-height: 1.4;
+  }
+
+  .intro,
+  .footnote,
+  .hint {
+    margin: 0;
+  }
+
+  .hint {
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+
+  .footnote,
+  .deed-footer {
+    margin: 0;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--ink);
+    font-style: italic;
+    text-align: center;
+  }
+
+  /* ---------- Formulaire : champs tapés à la machine sur une ligne ---------- */
+
+  .draft-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .parties {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+    gap: 1.25rem 2rem;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .typed-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.375rem 0.125rem;
+    border: 0;
+    border-bottom: 1.5px solid var(--ink);
+    border-radius: 0;
+    background: transparent;
+    font-family: var(--font-typed);
+    font-size: 1.25rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .typed-area {
+    resize: vertical;
+    /* La zone grandit avec le texte : rien ne défile caché dans un petit cadre. */
+    field-sizing: content;
+  }
+
+  .typed-input::placeholder {
+    color: #557062;
+    opacity: 1;
+  }
+
+  /* Champ en erreur : double filet rouge, plus épais (pas la couleur seule). */
+  .typed-input[aria-invalid="true"] {
+    border-bottom: 4px double var(--wax);
+  }
+
+  .error {
+    color: var(--wax);
+    font-size: 0.9375rem;
+    font-style: italic;
+    overflow-wrap: anywhere;
+  }
+
+  .error:empty {
+    display: none;
+  }
+
+  .articles-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    margin: 0;
+    padding: 1rem 0;
+    border: 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .articles-field legend {
+    float: left;
+    padding: 0;
+  }
+
+  .articles-field legend + .hint {
+    clear: both;
+  }
+
+  .article-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .article-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.5rem 1rem;
+  }
+
+  .article-row .field {
+    flex: 1 1 18rem;
+  }
+
+  .article-input {
+    font-size: 1.0625rem;
+  }
+
+  .articles-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin: 0;
+  }
+
+  .deadline-field .typed-input {
+    max-width: 18rem;
+  }
+
+  .seal-block {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem 1.25rem;
+  }
+
+  .form-error {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .seal-block .button {
+    min-height: 52px;
+    padding-inline: 1.75rem;
+    font-size: 1.0625rem;
+  }
+
+  /* ---------- Acte ---------- */
+
+  .unsealed {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border: 2px dashed var(--wax);
+    background: var(--paper);
+    font-weight: 600;
+  }
+
+  .deed-head {
+    display: grid;
+    justify-items: center;
+    align-items: center;
+  }
+
+  .rosace {
+    grid-area: 1 / 1;
+    width: 21.25rem;
+    max-width: 100%;
+    height: auto;
+    stroke: var(--ink);
+    opacity: 0.28;
+  }
+
+  .title-block {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.625rem 1.375rem;
+    background: rgb(247 249 243 / 0.82);
+    text-align: center;
+  }
+
+  .republic {
+    margin: 0;
+    font-size: 0.8125rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+
+  .deed-title {
+    margin: 0;
+    font-family: var(--font-title);
+    font-weight: 400;
+    font-size: clamp(2.25rem, 6vw, 3.75rem);
+    /* Young Serif dessine sur environ 1,37 em : en dessous, ses lettres débordent de la ligne. */
+    line-height: 1.4;
+  }
+
+  /* Le numéro (40 caractères) ne tient pas sur une ligne à 360 px : il passe à la ligne après un
+     tiret (<wbr> posés par le script), jamais au milieu d'un groupe, faute d'autre point de
+     coupure entre lettres et chiffres. Il ne sort jamais de son bloc. */
+  .deed-number {
+    white-space: normal;
+  }
+
+  .deed-meta {
+    margin: 0;
+    font-family: var(--font-typed);
+    font-size: 0.9375rem;
+    text-wrap: balance;
+  }
+
+  .typed {
+    margin: 0;
+    font-family: var(--font-typed);
+  }
+
+  .party {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  /* Le tampon se pose à côté du nom, sur sa ligne : il ne recouvre jamais une lettre. */
+  .name-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 1rem;
+    padding-bottom: 0.375rem;
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .name {
+    flex: 1 1 8rem;
+    font-size: 1.375rem;
+    line-height: 1.35;
+  }
+
+  .stamp {
+    flex: none;
+    margin: 0.5rem 0.25rem;
+    padding: 0.125rem 0.625rem;
+    border: 4px double var(--wax);
+    color: var(--wax);
+    font-family: var(--font-title);
+    font-size: 1rem;
+    letter-spacing: 0.14em;
+    line-height: 1.3;
+    transform: rotate(-6deg);
+  }
+
+  /* Coup de tampon quand le verdict vient d'être déclaré ici (pas au simple chargement). */
+  .stamp.just-stamped {
+    animation: stamp-in 0.35s ease-out;
+  }
+
+  @keyframes stamp-in {
+    from {
+      opacity: 0;
+      transform: rotate(-6deg) scale(1.6);
+    }
+  }
+
+  .clause {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .subject {
+    font-size: 1.5rem;
+    line-height: 1.35;
+  }
+
+  .stake {
+    font-size: 1.25rem;
+    line-height: 1.35;
+  }
+
+  .articles {
+    padding: 1rem 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .article-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .article-list :global(li) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    overflow: clip;
+    overflow-clip-margin: 0.2em;
+  }
+
+  .article-list :global(strong) {
+    font-weight: 600;
+  }
+
+  .no-articles {
+    margin: 0;
+    font-style: italic;
+  }
+
+  /* Marges plutôt que gap : la région live vide (#passed) ne prend aucune place. */
+  .deadline {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .deadline > :global(*) + :global(*):not(:empty) {
+    margin-top: 0.625rem;
+  }
+
+  .deadline-line,
+  .passed,
+  .judged-line,
+  .verdict-line,
+  .verdict-note {
+    margin: 0;
+  }
+
+  .deadline-line {
+    font-family: var(--font-typed);
+  }
+
+  .passed,
+  .judged-line {
+    font-family: var(--font-title);
+    font-size: 1.25rem;
+    line-height: 1.35;
+  }
+
+  .judged {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .verdict-line {
+    font-family: var(--font-typed);
+    font-size: 1.25rem;
+  }
+
+  .verdict-note {
+    font-style: italic;
+    font-size: 0.9375rem;
+  }
+
+  /* Compte à rebours en souches perforées (module signature). */
+  .countdown-wrap {
+    container-type: inline-size;
+    max-width: 32.5rem;
+  }
+
+  .countdown {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1.5px solid var(--ink);
+  }
+
+  .stub {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    min-width: 0;
+    padding: 0.625rem 0.375rem;
+    text-align: center;
+  }
+
+  .stub + .stub {
+    border-left: 1.5px dashed var(--ink);
+  }
+
+  .stub-value {
+    max-width: 100%;
+    font-family: var(--font-title);
+    font-size: clamp(1.5rem, 7.5cqi, 2.125rem);
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+
+  .stub-unit {
+    font-size: 0.8125rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
+  }
+
+  /* Étroit (360 px) : deux souches par rangée, pour que « 3652 » jours tienne. */
+  @container (max-width: 22rem) {
+    .countdown {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .stub:nth-child(3) {
+      border-left: 0;
+    }
+
+    .stub:nth-child(n + 3) {
+      border-top: 1.5px dashed var(--ink);
+    }
+  }
+
+  .signoff {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.75rem;
+  }
+
+  .signatures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem 2.25rem;
+    min-width: 0;
+  }
+
+  .signature {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 12.5rem;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .signature-trace {
+    width: 100%;
+    height: auto;
+    stroke: var(--ink);
+  }
+
+  .signature figcaption {
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--ink);
+    font-size: 0.875rem;
+  }
+
+  /* Sceau de cire : palette fixe, la teinte vient de l'empreinte (data-wax). */
+  .seal {
+    --seal-wax: #9e2a24;
+    flex: none;
+    width: 150px;
+    height: 150px;
+  }
+
+  .seal[data-wax="1"] {
+    --seal-wax: #1e4636;
+  }
+
+  .seal[data-wax="2"] {
+    --seal-wax: #2b3a67;
+  }
+
+  .seal[data-wax="3"] {
+    --seal-wax: #7a4b12;
+  }
+
+  .wax {
+    fill: var(--seal-wax);
+    stroke: var(--seal-wax);
+  }
+
+  .wax-line {
+    stroke: rgb(0 0 0 / 0.3);
+  }
+
+  .seal-ring {
+    font-family: var(--font-legal);
+    font-size: 9.5px;
+    letter-spacing: 1.6px;
+    fill: var(--on-wax);
+  }
+
+  .seal-mark {
+    font-family: var(--font-title);
+    font-size: 36px;
+    fill: var(--on-wax);
+  }
+
+  /* ---------- Actions ---------- */
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+
+  /* Confirmation de copie : coche ET texte, jamais la couleur seule. Largeur réservée même
+     vide : les boutons voisins restent en place quand elle apparaît ou s'efface. */
+  .copy-status {
+    box-sizing: border-box;
+    width: 7.5rem;
+    text-align: end;
+    min-height: 1.5em;
+    margin: 0;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    white-space: nowrap;
+  }
+
+  .copy-status:not(:empty)::before {
+    content: "✓ " / "";
+  }
+
+  /* ---------- Refus ---------- */
+
+  .refused .frame {
+    gap: 1rem;
+  }
+
+  .refused p {
+    margin: 0;
+  }
+
+  .refused-detail {
+    font-style: italic;
+  }
+
+  .noscript {
+    padding: 1.5rem;
+  }
+
+  /* ---------- Boîtes de dialogue ---------- */
+
+  .dialog {
+    box-sizing: border-box;
+    width: min(34rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    padding: 1.5rem;
+    border: 4px double var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+  }
+
+  .dialog::backdrop {
+    background: rgb(30 70 54 / 0.6);
+  }
+
+  .dialog-title {
+    margin: 0 0 0.5rem;
+    font-family: var(--font-title);
+    font-weight: 400;
+    font-size: 1.5rem;
+    line-height: 1.4;
+  }
+
+  .dialog-text {
+    margin: 0 0 1rem;
+  }
+
+  .verdict-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    margin: 0;
+  }
+
+  .choice {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.125rem;
+    min-height: 52px;
+    padding: 0.5rem 1rem;
+    border: 1.5px solid var(--ink);
+    background: transparent;
+    text-align: start;
+  }
+
+  .choice:hover {
+    border-style: dashed;
+  }
+
+  .choice-role {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .choice-name {
+    max-width: 100%;
+    font-family: var(--font-typed);
+    font-size: 1.25rem;
+  }
+
+  .cancel {
+    align-self: flex-end;
+    margin-top: 0.25rem;
+  }
+
+  .copy-dialog-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0 0 1rem;
+  }
+
+  .copy-dialog-field input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.25rem 0.5rem;
+    border: 1.5px solid var(--ink);
+    background: #ffffff;
+    font-family: var(--font-typed);
+    font-size: 0.9375rem;
+  }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: end;
+    margin: 0;
+  }
+
+  /* ---------- Mouvement réduit ---------- */
+
+  @media (prefers-reduced-motion: reduce) {
+    .stamp.just-stamped {
+      animation: none;
+    }
+  }
+
+  /* ---------- Impression (CA-6) : l'acte seul, sur une page A4 ---------- */
+
+  /* Le pied d'acte est aussi répété dans la marge basse de chaque page : si un navigateur
+     coupait malgré tout l'acte en deux, aucune page « officielle » ne sortirait sans lui (CA-6,
+     CA-8). Même texte que TEXT.footer (messages.ts) ; le test e2e lit le PDF pour le vérifier. */
+  @page {
+    size: A4;
+    margin: 8mm 10mm 13mm;
+  }
+
+  /* Page nommée : le pied en marge n'est que sur les pages de l'acte. Imprimer la Rédaction ou
+     un refus (masqués à l'impression) sort une page blanche, sans faux pied d'acte (spec, CA-6). */
+  @page deed {
+    @bottom-center {
+      content: "Acte sans aucune valeur juridique. Juré, craché.";
+      color: #1e4636;
+      font-family: "Spectral", Georgia, serif;
+      font-size: 8pt;
+      font-style: italic;
+      vertical-align: top;
+    }
+  }
+
+  @media print {
+    :global(html),
+    :global(body) {
+      background: #ffffff;
+    }
+
+    :global(body) {
+      font-size: 9pt;
+      line-height: 1.3;
+    }
+
+    :global(.collection-tag),
+    .top,
+    .actions,
+    #draft,
+    #refused,
+    .dialog {
+      display: none !important;
+    }
+
+    /* Seules les pages de l'acte portent le pied en marge (@page deed). */
+    #deed-screen {
+      page: deed;
+    }
+
+    /* Pas d'espace avant l'acte : tout le haut de page est pour lui. */
+    main,
+    .screen {
+      gap: 2mm;
+    }
+
+    main {
+      max-width: none;
+      padding: 0;
+    }
+
+    /* CL-6 : le numéro non scellé s'explique aussi sur papier. */
+    .unsealed {
+      padding: 1mm 2.5mm;
+      border-width: 1.5px;
+      font-size: 7.5pt;
+      font-weight: 400;
+      line-height: 1.25;
+    }
+
+    .paper {
+      padding: 3px;
+      box-shadow: none;
+    }
+
+    .frame {
+      gap: 2mm;
+      padding: 3.5mm 7mm;
+    }
+
+    .rosace {
+      width: 36mm;
+    }
+
+    .title-block {
+      gap: 0.5mm;
+      padding: 1mm 4mm;
+    }
+
+    .deed-title {
+      font-size: 20pt;
+    }
+
+    .republic,
+    .label,
+    .stub-unit {
+      font-size: 7pt;
+    }
+
+    .deed-meta,
+    .deadline-line {
+      font-size: 8.5pt;
+    }
+
+    .parties {
+      gap: 2mm 8mm;
+    }
+
+    .party,
+    .clause {
+      gap: 0.5mm;
+    }
+
+    .name-line {
+      padding-bottom: 1mm;
+    }
+
+    /* Plafond de hauteur de chaque texte libre (CA-6) : un acte aux bornes en idéogrammes
+       (1 em par caractère, le cas légitime le plus large) tient entier. Au-delà, un lien forgé
+       avec des glyphes très larges (U+FDFD…) est coupé net, jamais reporté sur une 2e page. */
+    .free-text,
+    .article-list :global(li) {
+      max-height: calc(var(--print-lines) * 1lh);
+      /* Sur papier, rien ne dépasse du plafond : pas de demi-ligne rognée sous la dernière. */
+      overflow-clip-margin: 0;
+    }
+
+    /* 5 lignes : à côté du tampon VAINQUEUR, le nom n'a que ~170 px ; 40 emoji y prennent
+       exactement 4 lignes avec la police d'emoji locale, 5 avec celle de Chromium 156 (CI). */
+    .name {
+      --print-lines: 5;
+      font-size: 10pt;
+      line-height: 1.3;
+    }
+
+    /* « Vainqueur déclaré : » et un nom de 40 caractères pleine chasse : 2 lignes. */
+    .verdict-line {
+      --print-lines: 2;
+      font-size: 10pt;
+      line-height: 1.3;
+    }
+
+    .stamp {
+      margin: 0.5mm 1mm;
+      font-size: 8.5pt;
+    }
+
+    .subject {
+      --print-lines: 6;
+      font-size: 10pt;
+      line-height: 1.25;
+    }
+
+    .stake {
+      --print-lines: 4;
+      font-size: 9.5pt;
+      line-height: 1.25;
+    }
+
+    .articles {
+      padding: 1.5mm 0;
+    }
+
+    .article-list {
+      gap: 0.8mm;
+    }
+
+    .article-list :global(li) {
+      --print-lines: 4;
+      font-size: 8.5pt;
+      line-height: 1.25;
+    }
+
+    .deadline > :global(*) + :global(*):not(:empty) {
+      margin-top: 1mm;
+    }
+
+    .passed,
+    .judged-line {
+      font-size: 10pt;
+    }
+
+    .judged {
+      gap: 0.5mm;
+    }
+
+    .verdict-note {
+      font-size: 8pt;
+      line-height: 1.25;
+    }
+
+    /* Plus large que 22rem (93 mm) : les quatre souches restent sur une rangée. */
+    .countdown-wrap {
+      max-width: 105mm;
+    }
+
+    .stub {
+      padding: 1mm;
+    }
+
+    .stub-value {
+      font-size: 14pt;
+      line-height: 1.3;
+    }
+
+    .signoff {
+      gap: 3mm;
+    }
+
+    .signatures {
+      gap: 2mm 8mm;
+    }
+
+    .signature {
+      width: 34mm;
+    }
+
+    .signature figcaption {
+      padding-top: 0.5mm;
+      font-size: 7.5pt;
+    }
+
+    .seal {
+      width: 20mm;
+      height: 20mm;
+    }
+
+    .deed-footer {
+      padding-top: 1.5mm;
+      font-size: 8.5pt;
+    }
   }
 </style>

@@ -1,7 +1,8 @@
-// Cadence du compteur. L'horloge et les minuteurs sont injectés : testable avec
-// vi.useFakeTimers, et aucun Date.now() caché dans la logique.
+// Cadence des compteurs live de la collection (tout look qui affiche un compteur à la seconde).
+// L'horloge et les minuteurs sont injectés : testable avec vi.useFakeTimers, et aucun Date.now()
+// caché dans la logique.
 
-/** Le résumé accessible change au plus toutes les 30 s (CA-8, CLAUDE.md). */
+/** Le résumé accessible d'un compteur live change au plus toutes les 30 s (CLAUDE.md). */
 export const SUMMARY_INTERVAL_MS = 30_000;
 
 export function summaryDue(lastUpdateMs: number | null, nowMs: number): boolean {
@@ -20,7 +21,8 @@ export type Timers<Handle> = {
 
 /**
  * Appelle `callback` à chaque changement de seconde de `clock`, recalé à chaque tour : deux
- * appareils à l'heure changent de montant au même moment (CA-3). Renvoie la fonction d'arrêt.
+ * appareils à l'heure changent d'affichage au même moment, et un battement en retard ne décale
+ * pas les suivants. Renvoie la fonction d'arrêt.
  */
 export function everySecond<Handle>(
   callback: () => void,
@@ -32,7 +34,7 @@ export function everySecond<Handle>(
   const schedule = () => {
     handle = timers.set(() => {
       callback();
-      // Le callback peut arrêter le compteur (passage au Ticket) : on ne relance pas.
+      // Le callback peut arrêter le compteur (fin du compteur) : on ne relance pas.
       if (!stopped) schedule();
     }, msToNextSecond(clock()));
   };

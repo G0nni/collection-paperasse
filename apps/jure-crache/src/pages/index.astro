@@ -1501,8 +1501,10 @@ const stubs = [
       overflow-clip-margin: 0;
     }
 
+    /* 5 lignes : à côté du tampon VAINQUEUR, le nom n'a que ~170 px ; 40 emoji y prennent
+       exactement 4 lignes avec la police d'emoji locale, 5 avec celle de Chromium 156 (CI). */
     .name {
-      --print-lines: 4;
+      --print-lines: 5;
       font-size: 10pt;
       line-height: 1.3;
     }

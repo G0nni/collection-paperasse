@@ -11,7 +11,8 @@
 2. **Acte** (hash valide, pas de verdict) : l'acte complet, compte à rebours, boutons « Copier
    le lien de l'acte », « Imprimer », « Déclarer le vainqueur ».
 3. **Acte jugé** (hash valide + verdict) : même acte, tampon VAINQUEUR (ou MATCH NUL) sur le nom,
-   compte à rebours remplacé par « Jugé le … ».
+   compte à rebours remplacé par « Verdict déclaré. Échéance du pari : <date> ». Le lien ne porte
+   pas la date du verdict : l'app n'en affiche aucune.
 
 ## Format d'URL (fait foi)
 
@@ -37,15 +38,19 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 
 - Tous les textes : trim, caractères de contrôle et bidirectionnels retirés, puis vérification
   des bornes. Clé inconnue → acte refusé. Clé manquante → acte refusé.
-- Payload décompressé > 4 Ko, JSON invalide, lz-string qui renvoie `null` ou `""` → écran
+- Payload décompressé > 4 Ko (mesuré en unités UTF-16, `decoded.length` : un acte aux bornes
+  tient toujours, emoji compris), JSON invalide, lz-string qui renvoie `null` ou `""` → écran
   « Acte illisible » avec bouton « Rédiger un nouvel acte ».
 
 ## Empreinte et numéro d'acte
 
 - `empreinte = SHA-256(JSON canonique de acte)` via `crypto.subtle.digest`. JSON canonique =
   clés dans l'ordre `p, c, o, e, a, d, t`, sans espace.
-- Numéro affiché : `N° AAAA-XXXX-XXXX` où `AAAA` = année de `t` et `XXXX-XXXX` = 8 premiers
-  caractères hexadécimaux de l'empreinte, en majuscules.
+- Numéro affiché : `N° AAAA-XXXX-XXXX-XXXX-XXXX` où `AAAA` = année UTC de `t` et les 16
+  caractères suivants = 16 premiers caractères hexadécimaux de l'empreinte (64 bits), en
+  majuscules. Avec 8 caractères (32 bits), forger un autre acte au même numéro coûtait quelques
+  secondes à quelques minutes de calcul (rapport security, tour 1) ; à 64 bits, c'est hors de
+  portée. Le numéro détecte la retouche, il ne prouve rien juridiquement (pied d'acte).
 - La couleur de la cire est choisie dans une palette fixe de 4 teintes à partir de l'empreinte.
 - Les signatures sont des tracés SVG générés de façon déterministe à partir du nom (même nom →
   même gribouillis).
@@ -64,7 +69,11 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 - **CA-5** « Déclarer le vainqueur » propose parieur / contre-parieur / match nul dans une boîte
   de dialogue accessible (`<dialog>`, focus piégé, Échap ferme), puis ajoute le suffixe au hash.
 - **CA-6** « Imprimer » ouvre l'impression ; la feuille de style d'impression tient l'acte sur une
-  page A4 sans les boutons.
+  page A4 sans les boutons, sans page blanche, pour tout acte qui respecte les bornes, y compris
+  en idéogrammes. Chaque texte libre a un plafond de hauteur en impression : au-delà (lien forgé
+  avec des glyphes très larges), il est coupé, jamais reporté sur une 2e page. Le pied d'acte est
+  en plus répété en marge basse de chaque page imprimée (`@page`), pour qu'aucune page « officielle »
+  ne sorte sans lui.
 - **CA-7** « Copier le lien » : même comportement que le Réunion-mètre (CA-7 et section Écrans) :
   copie de l'URL courante, confirmation annoncée à côté du bouton qui s'efface si le lien change,
   et repli dans un `<dialog>` modal (champ sélectionné, Fermer, Échap, focus rendu) si le
@@ -121,3 +130,8 @@ Schéma de `acte` (clés courtes, ordre fixe pour l'empreinte) :
 - Verdict déclaratif, hors empreinte (sinon il faudrait un serveur pour savoir qui a le droit de
   juger).
 - Les dates sont affichées dans le fuseau de l'appareil qui regarde, en `fr-FR`.
+- Décisions de l'orchestrateur après le tour 1 (à confirmer) : « Verdict déclaré » sans date ;
+  numéro sur 64 bits ; 4 Ko en unités UTF-16 ; impression bornée à une page avec pied répété ;
+  forme propre réécrite (`replaceState`) sauf lien illisible ou de version inconnue ; Rédaction
+  vide avec échéance proposée à J+7, 20 h, et les 3 articles par défaut ; boutons « Nouvel acte »
+  et « Modifier le verdict » ; année du numéro en UTC (même numéro dans tous les fuseaux).

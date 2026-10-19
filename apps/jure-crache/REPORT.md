@@ -1,4 +1,33 @@
-# Rapport jure-crache · tour 2
+# Rapport jure-crache · tour 3 (final)
+
+## Verdict
+
+**Fini.** Les 6 points de la définition de « fini » sont vrais :
+
+1. CA-1 à CA-11 couverts et verts.
+2. CL-1 à CL-9 couverts et verts.
+3. `pnpm verify` vert au build du tour 3 (1717 e2e, 225 sautés volontairement), tests du tester
+   ajoutés ensuite verts (867 e2e desktop jure-crache + reunion-metre) ; confirmé par la CI.
+4. Reviewer : « Prêt » (0 bloquant).
+5. Security : aucun point critique ou élevé ; le moyen du tour 2 (collision préparée à 64 bits)
+   est fermé par le numéro sur 128 bits.
+6. Axe : 0 violation.
+
+Tour 3 : numéro sur 128 bits en base32 Crockford (200 000 empreintes contre un oracle
+indépendant, sans écart ni biais), « 1er », pied en marge limité aux pages de l'acte, échéance
+discriminée, `pdf.ts` durci, `trapFocus` dans le copieur partagé (testé sur les deux looks).
+
+Restent ouverts (non bloquants) :
+- `seal.ts:97` utilise un lookbehind dans une regex (Safari < 16.4 : module entier en panne) ;
+  correction en une ligne proposée par le reviewer.
+- Règle `white-space: normal` inutile et commentaire inexact sur les `<wbr>` (`index.astro:940`).
+- Découpage d'`app.ts` (561 lignes).
+- Télémétrie d'`astro build` (outil de build, pas le site) : `ASTRO_TELEMETRY_DISABLED=1` proposé.
+- Décision 128 bits à confirmer par Gonni ; Lighthouse non mesuré ici.
+
+---
+
+# Historique : tour 2
 
 ## Verdict
 

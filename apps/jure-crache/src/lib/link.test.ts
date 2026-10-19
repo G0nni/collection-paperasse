@@ -1,7 +1,7 @@
 import LZString from "lz-string";
 import { describe, expect, it } from "vitest";
 import { canonicalJson, type Deed } from "./deed";
-import { MAX_DECODED_BYTES, buildHash, encodeDeed, fitsInLink, parseHash } from "./link";
+import { MAX_DECODED_LENGTH, buildHash, encodeDeed, fitsInLink, parseHash } from "./link";
 
 const T = Date.UTC(2026, 9, 14, 9, 0, 0);
 const NOW = T + 60_000;
@@ -129,7 +129,7 @@ describe("CL-2 · payloads hostiles", () => {
   });
 });
 
-describe("tailles : 4 Ko bruts, 4 Ko décodés", () => {
+describe("tailles : 4 Ko bruts, 4 Ko décodés (unités UTF-16)", () => {
   it("hash brut de plus de 4 Ko → refusé avant tout décodage", () => {
     expect(parseHash(`#1.${"A".repeat(4095)}`, NOW)).toEqual({
       screen: "unreadable",
@@ -144,8 +144,8 @@ describe("tailles : 4 Ko bruts, 4 Ko décodés", () => {
   });
 
   it("payload décompressé de plus de 4 Ko → illisible (bombe de décompression comprise)", () => {
-    // Quelques centaines de caractères qui se décompressent en 1 Mo.
-    const bomb = LZString.compressToEncodedURIComponent("a".repeat(1_000_000));
+    // Quelques centaines de caractères qui se décompressent en 200 000.
+    const bomb = LZString.compressToEncodedURIComponent("a".repeat(200_000));
     expect(bomb.length).toBeLessThan(4096);
     const started = performance.now();
     expect(parseHash(`#1.${bomb}`, NOW)).toEqual({
@@ -155,29 +155,44 @@ describe("tailles : 4 Ko bruts, 4 Ko décodés", () => {
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
-  it("4 Ko comptés en octets UTF-8 : 4096 octets passent, 4097 non", () => {
+  it("4 Ko décodés comptés en unités UTF-16 : 4096 passent, 4097 non", () => {
     // Le schéma borne déjà les textes : un JSON de plus de 4 Ko se fait avec des espaces.
     const json = canonicalJson(DEED);
-    const bytes = new TextEncoder().encode(json).length;
-    const exact = json.replace("{", `{${" ".repeat(MAX_DECODED_BYTES - bytes)}`);
-    expect(new TextEncoder().encode(exact).length).toBe(MAX_DECODED_BYTES);
+    const exact = json.replace("{", `{${" ".repeat(MAX_DECODED_LENGTH - json.length)}`);
+    expect(exact.length).toBe(MAX_DECODED_LENGTH);
     expect(parseHash(hashOf(exact), NOW).screen).toBe("deed");
-    const over = json.replace("{", `{${" ".repeat(MAX_DECODED_BYTES - bytes + 1)}`);
+    const over = json.replace("{", `{${" ".repeat(MAX_DECODED_LENGTH - json.length + 1)}`);
     expect(parseHash(hashOf(over), NOW)).toEqual({
       screen: "unreadable",
       reason: "decoded-too-long",
     });
-    // Même longueur en caractères, mais plus d'octets : « é » vaut 2 octets.
-    const accented = json.replace("{", `{${" ".repeat(MAX_DECODED_BYTES - bytes - 1)}`);
-    const withAccent = accented.replace("Sam", "Sàm");
-    expect(withAccent.length).toBeLessThan(MAX_DECODED_BYTES);
-    expect(new TextEncoder().encode(withAccent).length).toBe(MAX_DECODED_BYTES);
-    expect(parseHash(hashOf(withAccent), NOW).screen).toBe("deed");
-    const twoAccents = withAccent.replace("Théo", "Thèo").replace("Kevin", "Kévin");
-    expect(parseHash(hashOf(twoAccents), NOW)).toEqual({
-      screen: "unreadable",
-      reason: "decoded-too-long",
-    });
+    // Les octets UTF-8 ne comptent plus : « à » en vaut 2 mais une seule unité UTF-16.
+    const accented = exact.replace("Sam", "Sàm");
+    expect(accented.length).toBe(MAX_DECODED_LENGTH);
+    expect(new TextEncoder().encode(accented).length).toBeGreaterThan(MAX_DECODED_LENGTH);
+    expect(parseHash(hashOf(accented), NOW).screen).toBe("deed");
+  });
+
+  it("un acte d'emoji aux bornes passe (plus de 4 Ko en UTF-8, moins de 4 Ko en UTF-16)", () => {
+    const emoji = [0x1f389, 0x1f37a, 0x1f95f, 0x1f680, 0x1f98a].map((code) =>
+      String.fromCodePoint(code),
+    );
+    const run = (length: number, seed: number) =>
+      Array.from({ length }, (_, index) => emoji[(index + seed) % emoji.length] ?? "").join("");
+    const atBounds: Deed = {
+      ...DEED,
+      bettor: run(40, 0),
+      opponent: run(40, 1),
+      subject: run(200, 2),
+      stake: run(120, 3),
+      articles: [4, 5, 6, 7, 8].map((seed) => run(160, seed)),
+    };
+    const json = canonicalJson(atBounds);
+    expect(new TextEncoder().encode(json).length).toBeGreaterThan(MAX_DECODED_LENGTH);
+    expect(json.length).toBeLessThanOrEqual(MAX_DECODED_LENGTH);
+    expect(fitsInLink(atBounds)).toBe(true);
+    const state = parseHash(buildHash(atBounds, "p"), NOW);
+    expect(state.screen === "deed" && state.deed).toEqual(atBounds);
   });
 
   it("fitsInLink : un acte normal tient ; un acte maximal en caractères rares, non", () => {

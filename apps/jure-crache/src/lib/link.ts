@@ -17,8 +17,12 @@ export type Verdict = (typeof VERDICTS)[number];
 /** Seule version du format. */
 export const FORMAT_VERSION = "1";
 
-/** Taille maximale du JSON décompressé, en octets UTF-8 (« 4 Ko décodés »). */
-export const MAX_DECODED_BYTES = MAX_URL_PAYLOAD;
+/**
+ * Taille maximale du JSON décompressé, en unités UTF-16 (`decoded.length`, spec « Format
+ * d'URL »). En octets UTF-8, un acte d'emoji aux bornes (4 octets par emoji) aurait été refusé ;
+ * en unités UTF-16, un point de code en vaut au plus 2 et un acte aux bornes tient toujours.
+ */
+export const MAX_DECODED_LENGTH = MAX_URL_PAYLOAD;
 
 /** Alphabet de `compressToEncodedURIComponent` : rien d'autre n'est un payload. */
 const PAYLOAD_ALPHABET = /^[A-Za-z0-9+$-]+$/u;
@@ -61,13 +65,6 @@ function rawHash(hash: string): string {
   return hash.startsWith("#") ? hash.slice(1) : hash;
 }
 
-/** Octets UTF-8 d'un texte, sans tout encoder quand sa longueur suffit à conclure. */
-function exceedsBytes(text: string, max: number): boolean {
-  // Un code UTF-16 donne au moins un octet UTF-8 : au-delà de `max` codes, c'est trop long.
-  if (text.length > max) return true;
-  return new TextEncoder().encode(text).length > max;
-}
-
 function safeDecompress(payload: string): string | null {
   try {
     return LZString.decompressFromEncodedURIComponent(payload);
@@ -108,9 +105,7 @@ export function buildHash(deed: Deed, verdict: Verdict | null): string {
 export function fitsInLink(deed: Deed): boolean {
   // Le suffixe de verdict le plus long (« .p ») compte déjà : juger l'acte ne le casse pas.
   const longest = buildHash(deed, "p");
-  return (
-    !isPayloadTooLong(rawHash(longest)) && !exceedsBytes(canonicalJson(deed), MAX_DECODED_BYTES)
-  );
+  return !isPayloadTooLong(rawHash(longest)) && canonicalJson(deed).length <= MAX_DECODED_LENGTH;
 }
 
 /**
@@ -133,7 +128,7 @@ export function parseHash(hash: string, nowMs: number): LinkState {
 
   const decoded = safeDecompress(payload);
   if (decoded === null || decoded === "") return unreadable("decompress");
-  if (exceedsBytes(decoded, MAX_DECODED_BYTES)) return unreadable("decoded-too-long");
+  if (decoded.length > MAX_DECODED_LENGTH) return unreadable("decoded-too-long");
   const json = safeJsonParse(decoded);
   if (json === null) return unreadable("json");
   const result = readDeed(json.value, nowMs);

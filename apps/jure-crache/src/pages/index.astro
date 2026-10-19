@@ -1373,9 +1373,21 @@ const stubs = [
 
   /* ---------- Impression (CA-6) : l'acte seul, sur une page A4 ---------- */
 
+  /* Le pied d'acte est aussi répété dans la marge basse de chaque page : si un navigateur
+     coupait malgré tout l'acte en deux, aucune page « officielle » ne sortirait sans lui (CA-6,
+     CA-8). Même texte que TEXT.footer (messages.ts) ; le test e2e lit le PDF pour le vérifier. */
   @page {
     size: A4;
-    margin: 10mm;
+    margin: 8mm 10mm 13mm;
+
+    @bottom-center {
+      content: "Acte sans aucune valeur juridique. Juré, craché.";
+      color: #1e4636;
+      font-family: "Spectral", Georgia, serif;
+      font-size: 8pt;
+      font-style: italic;
+      vertical-align: top;
+    }
   }
 
   @media print {
@@ -1390,9 +1402,7 @@ const stubs = [
     }
 
     :global(.collection-tag),
-    .masthead,
-    .notices,
-    .unsealed,
+    .top,
     .actions,
     #draft,
     #refused,
@@ -1400,119 +1410,182 @@ const stubs = [
       display: none !important;
     }
 
+    /* Pas d'espace avant l'acte : tout le haut de page est pour lui. */
+    main,
+    .screen {
+      gap: 2mm;
+    }
+
     main {
       max-width: none;
       padding: 0;
     }
 
+    /* CL-6 : le numéro non scellé s'explique aussi sur papier. */
+    .unsealed {
+      padding: 1mm 2.5mm;
+      border-width: 1.5px;
+      font-size: 7.5pt;
+      font-weight: 400;
+      line-height: 1.25;
+    }
+
     .paper {
-      padding: 4px;
+      padding: 3px;
       box-shadow: none;
-      break-inside: avoid;
     }
 
     .frame {
-      gap: 2.5mm;
-      padding: 5mm 8mm;
+      gap: 2mm;
+      padding: 3.5mm 7mm;
     }
 
     .rosace {
-      width: 50mm;
+      width: 36mm;
     }
 
     .title-block {
-      gap: 1mm;
-      padding: 1.5mm 4mm;
+      gap: 0.5mm;
+      padding: 1mm 4mm;
     }
 
     .deed-title {
-      font-size: 22pt;
+      font-size: 20pt;
     }
 
     .republic,
     .label,
     .stub-unit {
-      font-size: 7.5pt;
+      font-size: 7pt;
     }
 
     .deed-meta,
     .deadline-line {
-      font-size: 9pt;
+      font-size: 8.5pt;
     }
 
     .parties {
-      gap: 3mm 8mm;
+      gap: 2mm 8mm;
     }
 
-    .name,
+    .party,
+    .clause {
+      gap: 0.5mm;
+    }
+
+    .name-line {
+      padding-bottom: 1mm;
+    }
+
+    /* Plafond de hauteur de chaque texte libre (CA-6) : un acte aux bornes en idéogrammes
+       (1 em par caractère, le cas légitime le plus large) tient entier. Au-delà, un lien forgé
+       avec des glyphes très larges (U+FDFD…) est coupé net, jamais reporté sur une 2e page. */
+    .free-text,
+    .article-list :global(li) {
+      max-height: calc(var(--print-lines) * 1lh);
+    }
+
+    .name {
+      --print-lines: 4;
+      font-size: 10pt;
+      line-height: 1.3;
+    }
+
+    /* « Vainqueur déclaré : » et un nom de 40 caractères pleine chasse : 2 lignes. */
     .verdict-line {
-      font-size: 11pt;
+      --print-lines: 2;
+      font-size: 10pt;
+      line-height: 1.3;
     }
 
     .stamp {
-      margin: 1mm;
-      font-size: 9pt;
+      margin: 0.5mm 1mm;
+      font-size: 8.5pt;
     }
 
     .subject {
-      font-size: 11pt;
-      line-height: 1.25;
-    }
-
-    .stake {
+      --print-lines: 6;
       font-size: 10pt;
       line-height: 1.25;
     }
 
+    .stake {
+      --print-lines: 4;
+      font-size: 9.5pt;
+      line-height: 1.25;
+    }
+
     .articles {
-      padding: 2mm 0;
+      padding: 1.5mm 0;
     }
 
     .article-list {
-      gap: 1mm;
+      gap: 0.8mm;
+    }
+
+    .article-list :global(li) {
+      --print-lines: 4;
+      font-size: 8.5pt;
+      line-height: 1.25;
+    }
+
+    .deadline > :global(*) + :global(*):not(:empty) {
+      margin-top: 1mm;
     }
 
     .passed,
     .judged-line {
-      font-size: 11pt;
+      font-size: 10pt;
+    }
+
+    .judged {
+      gap: 0.5mm;
     }
 
     .verdict-note {
-      font-size: 8.5pt;
+      font-size: 8pt;
+      line-height: 1.25;
     }
 
+    /* Plus large que 22rem (93 mm) : les quatre souches restent sur une rangée. */
     .countdown-wrap {
-      max-width: 95mm;
+      max-width: 105mm;
     }
 
     .stub {
-      padding: 1.5mm 1mm;
+      padding: 1mm;
     }
 
     .stub-value {
-      font-size: 16pt;
+      font-size: 14pt;
+      line-height: 1.3;
     }
 
     .signoff {
-      gap: 4mm;
+      gap: 3mm;
+    }
+
+    .signatures {
+      gap: 2mm 8mm;
     }
 
     .signature {
-      width: 38mm;
+      width: 34mm;
     }
 
     .signature figcaption {
-      font-size: 8pt;
+      padding-top: 0.5mm;
+      font-size: 7.5pt;
     }
 
     .seal {
-      width: 22mm;
-      height: 22mm;
+      width: 20mm;
+      height: 20mm;
     }
 
     .deed-footer {
-      padding-top: 2mm;
-      font-size: 9pt;
+      padding-top: 1.5mm;
+      font-size: 8.5pt;
     }
   }
 </style>

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NBSP } from "@paperasse/shared/typography";
 import { canonicalJson } from "./deed";
 import {
   DEFAULT_ARTICLES,
+  NONEXISTENT_TIME,
   defaultDeadline,
+  largestText,
   localToEpoch,
   parseLocalDateTime,
   toLocalInputValue,
@@ -63,7 +65,7 @@ describe("CA-1 · validateDraft", () => {
     );
     expect(result).toEqual({
       ok: false,
-      clock: false,
+      reason: "fields",
       errors: [
         { field: "bettor", index: 0, code: "empty" },
         { field: "opponent", index: 0, code: "too-long" },
@@ -122,11 +124,94 @@ describe("CA-1 · validateDraft", () => {
   it("horloge de l'appareil avant 2026 : refus, l'acte ne serait pas relu", () => {
     const early = Date.UTC(2025, 5, 1);
     const result = validateDraft({ ...DRAFT, deadline: early + 86_400_000 }, early);
-    expect(result).toEqual({ ok: false, errors: [], clock: true });
+    expect(result).toEqual({ ok: false, reason: "clock", errors: [] });
+    // Un champ en erreur passe avant l'horloge : c'est lui qu'il faut corriger d'abord.
+    const both = validateDraft({ ...DRAFT, bettor: "", deadline: early + 86_400_000 }, early);
+    expect(both).toEqual({
+      ok: false,
+      reason: "fields",
+      errors: [{ field: "bettor", index: 0, code: "empty" }],
+    });
+  });
+
+  it("heure sautée au passage à l'heure d'été : erreur sur l'échéance", () => {
+    const result = validateDraft({ ...DRAFT, deadline: NONEXISTENT_TIME }, NOW);
+    expect(result).toEqual({
+      ok: false,
+      reason: "fields",
+      errors: [{ field: "deadline", index: 0, code: "nonexistent-time" }],
+    });
+  });
+
+  it("acte trop long pour un lien : erreur sur le texte qui y prend le plus de place", () => {
+    // Des idéogrammes tous différents se compressent mal : l'acte respecte les bornes, pas le lien.
+    let next = 0;
+    const rare = (length: number) =>
+      Array.from({ length }, () => String.fromCodePoint(0x4e00 + ((next++ * 7919) % 20_000))).join(
+        "",
+      );
+    const exotic: Draft = {
+      ...DRAFT,
+      bettor: rare(40),
+      opponent: rare(40),
+      subject: rare(200),
+      stake: rare(120),
+      articles: Array.from({ length: 5 }, () => rare(160)),
+    };
+    expect(validateDraft(exotic, NOW)).toEqual({
+      ok: false,
+      reason: "fields",
+      errors: [{ field: "subject", index: 0, code: "link-too-long" }],
+    });
+    // Objet court, 3e article le plus long : c'est lui qui est désigné.
+    const heavy: Draft = {
+      ...exotic,
+      subject: "Court.",
+      articles: [rare(150), rare(150), rare(160), rare(150), rare(150)],
+    };
+    expect(validateDraft(heavy, NOW)).toEqual({
+      ok: false,
+      reason: "fields",
+      errors: [{ field: "article", index: 2, code: "link-too-long" }],
+    });
+  });
+});
+
+describe("largestText", () => {
+  it("le texte le plus lourd une fois compressé, le premier du formulaire à égalité", () => {
+    const deed = { ...DRAFT, deadline: NOW + 1, draftedAt: NOW };
+    // Le 3e article par défaut (SNCF, 103 caractères) pèse plus que l'objet (48).
+    expect(largestText(deed)).toEqual({ field: "article", index: 2 });
+    expect(largestText({ ...deed, articles: [] })).toEqual({ field: "subject", index: 0 });
+    expect(
+      largestText({ ...deed, bettor: "a", opponent: "b", subject: "c", stake: "d", articles: [] }),
+    ).toEqual({ field: "bettor", index: 0 });
   });
 });
 
 describe("champ datetime-local", () => {
+  // Le fuseau du moteur décide de l'heure locale : Paris, comme les tests e2e.
+  const savedTimeZone = process.env["TZ"];
+  beforeEach(() => {
+    process.env["TZ"] = "Europe/Paris";
+  });
+  afterEach(() => {
+    if (savedTimeZone === undefined) delete process.env["TZ"];
+    else process.env["TZ"] = savedTimeZone;
+  });
+
+  it("passage à l'heure d'été (29 mars 2026, Paris) : 2 h 30 n'existe pas, 1 h 59 et 3 h 00 oui", () => {
+    const day = { year: 2026, month: 3, day: 29 };
+    expect(localToEpoch({ ...day, hour: 2, minute: 30 })).toBe(NONEXISTENT_TIME);
+    expect(localToEpoch({ ...day, hour: 2, minute: 0 })).toBe(NONEXISTENT_TIME);
+    expect(localToEpoch({ ...day, hour: 1, minute: 59 })).toBe(Date.UTC(2026, 2, 29, 0, 59));
+    expect(localToEpoch({ ...day, hour: 3, minute: 0 })).toBe(Date.UTC(2026, 2, 29, 1, 0));
+    // Retour à l'heure d'hiver : 2 h 30 existe deux fois, le moteur prend la première.
+    expect(localToEpoch({ year: 2026, month: 10, day: 25, hour: 2, minute: 30 })).toBe(
+      Date.UTC(2026, 9, 25, 0, 30),
+    );
+  });
+
   it("lit « AAAA-MM-JJTHH:MM » (secondes tolérées), refuse le reste", () => {
     expect(parseLocalDateTime("2026-10-17T20:00")).toEqual({
       year: 2026,
@@ -152,6 +237,8 @@ describe("champ datetime-local", () => {
     expect(localToEpoch(local)).toBe(new Date(2026, 9, 17, 20, 0).getTime());
     expect(localToEpoch({ ...local, month: 2, day: 30 })).toBeNull();
     expect(localToEpoch({ ...local, month: 13 })).toBeNull();
+    expect(localToEpoch({ ...local, hour: 24 })).toBeNull();
+    expect(localToEpoch({ ...local, minute: 60 })).toBeNull();
   });
 
   it("toLocalInputValue fait l'aller-retour avec parseLocalDateTime + localToEpoch", () => {

@@ -2,6 +2,7 @@
 // formulaire), appelle la logique, affiche. Tout texte venant du lien est écrit en textContent ;
 // aucune donnée utilisateur ne finit dans un href, un src ou un style (CLAUDE.md, Sécurité).
 import { createCopier } from "@paperasse/shared/copy";
+import { byId, fillList, setText, slot, trapFocus } from "@paperasse/shared/dom";
 import { everySecond, summaryDue } from "@paperasse/shared/ticker";
 import { parseEnum } from "@paperasse/shared/url";
 import { countdown, spokenCountdown, stubs } from "../lib/countdown";
@@ -18,22 +19,15 @@ import {
   type FieldName,
 } from "../lib/draft";
 import { formatDate, formatDateTime } from "../lib/format";
-import {
-  VERDICTS,
-  buildHash,
-  fitsInLink,
-  parseHash,
-  type LinkState,
-  type Verdict,
-} from "../lib/link";
+import { VERDICTS, buildHash, parseHash, type LinkState, type Verdict } from "../lib/link";
 import { LIMITS } from "../lib/deed";
 import {
   TEXT,
   articleLabel,
   articlePrefix,
   deadlineLine,
-  errorSummary,
   fieldErrorText,
+  formErrorText,
   judgedLine,
   noticeText,
   registeredLine,
@@ -43,7 +37,6 @@ import {
 } from "../lib/messages";
 import { browserDigest, deedNumber, fingerprint, waxIndex } from "../lib/seal";
 import { signaturePath } from "../lib/signature";
-import { byId, fillList, setText, slot, trapFocus } from "./dom";
 
 // ---------------------------------------------------------------------------------------------
 // Éléments
@@ -113,10 +106,11 @@ const view = {
   choiceOpponent: byId("choice-opponent", HTMLElement),
 };
 
+const copyDialog = byId("copy-dialog", HTMLDialogElement);
 const copier = createCopier(
   {
     status: byId("copy-status", HTMLElement),
-    dialog: byId("copy-dialog", HTMLDialogElement),
+    dialog: copyDialog,
     field: byId("copy-field", HTMLInputElement),
   },
   TEXT.copied,
@@ -124,7 +118,7 @@ const copier = createCopier(
 
 // CA-5 : focus piégé dans les deux boîtes de dialogue modales.
 trapFocus(view.verdictDialog);
-trapFocus(byId("copy-dialog", HTMLDialogElement));
+trapFocus(copyDialog);
 
 /** SHA-256 du navigateur, ou `null` hors contexte sécurisé (CL-6). */
 const digest = browserDigest(globalThis.crypto);
@@ -163,19 +157,22 @@ function urlFor(hash: string): string {
  */
 async function load(focus?: () => HTMLElement): Promise<void> {
   const token = ++loadToken;
+  // Posé avant le calcul d'empreinte : un hashchange vers ce même hash, reçu pendant l'attente,
+  // ne relance pas un second chargement.
+  renderedHash = location.hash;
   const parsed = parseHash(location.hash, now());
-  let print: string | null = null;
+  let fingerprintHex: string | null = null;
   if (parsed.screen === "deed") {
-    print = await fingerprint(parsed.deed, digest);
+    fingerprintHex = await fingerprint(parsed.deed, digest);
     // Un autre lien a été ouvert pendant le calcul : il a la main.
     if (token !== loadToken) return;
     // Forme propre (textes nettoyés, verdict inconnu retiré) : c'est elle que « Copier le
     // lien » copiera. Les liens refusés restent tels quels, pour qu'on voie ce qu'on a reçu.
     if (location.hash !== parsed.hash) history.replaceState(null, "", urlFor(parsed.hash));
+    renderedHash = location.hash;
   }
   state = parsed;
-  renderedHash = location.hash;
-  render(parsed, print);
+  render(parsed, fingerprintHex);
   focus?.().focus();
 }
 
@@ -191,13 +188,14 @@ window.addEventListener("popstate", reloadIfChanged);
 // Affichage
 // ---------------------------------------------------------------------------------------------
 
-function render(parsed: LinkState, print: string | null): void {
+function render(parsed: LinkState, fingerprintHex: string | null): void {
   const screen = parsed.screen;
   view.app.dataset["screen"] = screen;
   view.draft.hidden = screen !== "draft";
   view.deedScreen.hidden = screen !== "deed";
   view.refused.hidden = screen !== "unreadable" && screen !== "unknown-version";
-  view.newDeed.hidden = screen === "draft";
+  // Rédaction : on y est déjà. Refus : l'écran a son propre « Rédiger un nouvel acte ».
+  view.newDeed.hidden = screen !== "deed";
 
   copier.clear();
   if (view.verdictDialog.open) {
@@ -211,7 +209,7 @@ function render(parsed: LinkState, print: string | null): void {
   renderNotices(parsed.screen === "deed" ? parsed.notices.map(noticeText) : []);
 
   if (parsed.screen === "deed") {
-    renderDeed(parsed.deed, parsed.verdict, print);
+    renderDeed(parsed.deed, parsed.verdict, fingerprintHex);
   } else if (parsed.screen === "unreadable") {
     setText(view.refusedTitle, TEXT.unreadableTitle);
     setText(view.refusedText, TEXT.unreadableText);
@@ -229,12 +227,12 @@ function renderNotices(texts: readonly string[]): void {
   view.dismissNotices.hidden = texts.length === 0;
 }
 
-function renderDeed(deed: Deed, verdict: Verdict | null, print: string | null): void {
-  setText(view.deedNumber, deedNumber(print, deed.draftedAt));
+function renderDeed(deed: Deed, verdict: Verdict | null, fingerprintHex: string | null): void {
+  setText(view.deedNumber, deedNumber(fingerprintHex, deed.draftedAt));
   setText(view.deedRegistered, registeredLine(formatDate(deed.draftedAt)));
-  view.unsealed.hidden = print !== null;
+  view.unsealed.hidden = fingerprintHex !== null;
   // Index de palette (0 à 3), jamais une couleur venue du lien.
-  view.seal.dataset["wax"] = String(waxIndex(print));
+  view.seal.dataset["wax"] = String(waxIndex(fingerprintHex));
 
   setText(view.deedBettor, deed.bettor);
   setText(view.deedOpponent, deed.opponent);
@@ -289,7 +287,7 @@ function renderVerdict(deed: Deed, verdict: Verdict | null): void {
   setText(view.declare, judged ? TEXT.changeVerdict : TEXT.declare);
   if (verdict !== null) {
     setText(view.passed, "");
-    setText(view.judgedLine, judgedLine(formatDate(deed.deadline), now() < deed.deadline));
+    setText(view.judgedLine, judgedLine(formatDate(deed.deadline)));
     setText(view.verdictLine, verdictLine(verdict, deed));
   }
 }
@@ -374,7 +372,7 @@ function resetForm(): void {
   setText(view.formError, "");
 }
 
-function readDeadline(): number | null {
+function readDeadline(): Draft["deadline"] {
   const local = parseLocalDateTime(view.deadline.value);
   return local === null ? null : localToEpoch(local);
 }
@@ -429,7 +427,7 @@ function showErrors(errors: readonly FieldError[]): void {
   for (const fieldError of errors) {
     const { control, error } = fieldOf(fieldError.field, fieldError.index);
     control.setAttribute("aria-invalid", "true");
-    setText(error, fieldErrorText(fieldError.field, fieldError.code));
+    setText(error, fieldErrorText(fieldError));
   }
 }
 
@@ -439,7 +437,7 @@ function liveValidate(): void {
   const result = validateDraft(readDraft(), now());
   const errors = result.ok ? [] : result.errors;
   showErrors(errors);
-  setText(view.formError, errors.length === 0 ? "" : errorSummary(errors.length));
+  setText(view.formError, errors.length === 0 ? "" : formErrorText(errors));
 }
 
 view.form.addEventListener("input", liveValidate);
@@ -454,21 +452,18 @@ function sealDraft(): void {
   showLiveErrors = true;
   if (!result.ok) {
     showErrors(result.errors);
-    const first = result.errors[0];
-    if (first === undefined) {
-      // Aucune erreur de champ : seule l'horloge de l'appareil bloque.
+    if (result.reason === "clock") {
+      // Aucun champ en cause : seule l'horloge de l'appareil bloque.
       setText(view.formError, TEXT.clock);
       return;
     }
-    setText(view.formError, errorSummary(result.errors.length));
+    // Acte trop long pour un lien compris : l'erreur est sur le texte à raccourcir (CA-1).
+    setText(view.formError, formErrorText(result.errors));
+    const [first] = result.errors;
     fieldOf(first.field, first.index).control.focus();
     return;
   }
   showErrors([]);
-  if (!fitsInLink(result.deed)) {
-    setText(view.formError, TEXT.linkTooLong);
-    return;
-  }
   setText(view.formError, "");
   // Nouvelle entrée d'historique : « Précédent » rend le formulaire tel qu'il était tapé.
   history.pushState(null, "", urlFor(buildHash(result.deed, null)));

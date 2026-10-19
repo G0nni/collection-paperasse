@@ -1,5 +1,4 @@
-// Petits outils DOM du look (mêmes que ceux du Réunion-mètre). Texte toujours écrit en
-// textContent (CLAUDE.md, Sécurité).
+// Petits outils DOM communs aux looks. Texte toujours écrit en textContent (CLAUDE.md, Sécurité).
 
 /** Élément de la page, du type attendu, sinon une erreur claire (la page est cassée). */
 export function byId<T extends Element>(id: string, type: new () => T): T {
@@ -19,12 +18,12 @@ export function slot<T extends Element>(root: ParentNode, name: string, type: ne
  * N'écrit que si le texte change : chaque seconde, seuls les chiffres qui bougent touchent le
  * DOM, et une région live ne réannonce pas un message identique.
  */
-export function setText(element: HTMLElement, text: string): void {
+export function setText(element: Pick<Node, "textContent">, text: string): void {
   if (element.textContent !== text) element.textContent = text;
 }
 
 /** Remplace le contenu d'une liste par un <li> par texte. */
-export function fillList(list: HTMLElement, texts: readonly string[]): void {
+export function fillList(list: Element, texts: readonly string[]): void {
   list.replaceChildren(
     ...texts.map((text) => {
       const item = document.createElement("li");
@@ -34,7 +33,9 @@ export function fillList(list: HTMLElement, texts: readonly string[]): void {
   );
 }
 
-const FOCUSABLE = "button, input, textarea, select, a[href], [tabindex]:not([tabindex='-1'])";
+/** Ce qui peut recevoir le focus au clavier dans une boîte de dialogue. */
+export const FOCUSABLE =
+  "button, input, textarea, select, a[href], [tabindex]:not([tabindex='-1'])";
 
 /**
  * Garde Tab et Maj+Tab dans un <dialog> modal. Chromium rend le reste de la page inerte mais

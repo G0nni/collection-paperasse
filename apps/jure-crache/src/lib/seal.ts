@@ -44,24 +44,26 @@ export async function fingerprint(deed: Deed, digest: Digest | null): Promise<st
 }
 
 /**
- * « N° AAAA-XXXX-XXXX » : année UTC de la rédaction (le même numéro sur tous les appareils,
- * quel que soit leur fuseau) et 8 premiers caractères de l'empreinte, en majuscules. Insécable
- * après « N° » : le numéro ne part pas seul à la ligne.
+ * « N° AAAA-XXXX-XXXX-XXXX-XXXX » : année UTC de la rédaction (le même numéro sur tous les
+ * appareils, quel que soit leur fuseau) et 16 premiers caractères de l'empreinte (64 bits), en
+ * majuscules. À 32 bits, forger un autre acte au même numéro prenait quelques minutes de calcul
+ * (rapport security, tour 1). Insécable après « N° » : le numéro ne part pas seul à la ligne.
  */
-export function deedNumber(print: string | null, draftedAt: number): string {
-  if (print === null) return UNSEALED_NUMBER;
+export function deedNumber(fingerprintHex: string | null, draftedAt: number): string {
+  if (fingerprintHex === null) return UNSEALED_NUMBER;
   const year = String(new Date(draftedAt).getUTCFullYear());
-  const head = print.slice(0, 8).toUpperCase();
-  return `N°${NBSP}${year}-${head.slice(0, 4)}-${head.slice(4, 8)}`;
+  const head = fingerprintHex.slice(0, 16).toUpperCase();
+  const groups = [0, 4, 8, 12].map((start) => head.slice(start, start + 4));
+  return `N°${NBSP}${year}-${groups.join("-")}`;
 }
 
 /**
  * Teinte de la cire, tirée du dernier octet de l'empreinte (indépendant des chiffres affichés).
  * Sans empreinte : la cire par défaut.
  */
-export function waxIndex(print: string | null): WaxIndex {
-  if (print === null) return 0;
-  const byte = Number.parseInt(print.slice(-2), 16);
+export function waxIndex(fingerprintHex: string | null): WaxIndex {
+  if (fingerprintHex === null) return 0;
+  const byte = Number.parseInt(fingerprintHex.slice(-2), 16);
   const index = Number.isInteger(byte) ? byte % WAX_PALETTE.length : 0;
   return index === 1 ? 1 : index === 2 ? 2 : index === 3 ? 3 : 0;
 }

@@ -45,15 +45,30 @@ describe("fingerprint", () => {
 });
 
 describe("deedNumber", () => {
-  it("N° AAAA-XXXX-XXXX : année UTC de t, 8 premiers caractères en majuscules", () => {
-    const print = "1a2b3c4d" + "0".repeat(56);
-    expect(deedNumber(print, DEED.draftedAt)).toBe(`N°${NBSP}2026-1A2B-3C4D`);
+  it("N° AAAA-XXXX-XXXX-XXXX-XXXX : année UTC de t, 16 premiers caractères (64 bits) en majuscules", () => {
+    const fingerprintHex = "1a2b3c4d5e6f7a8b" + "9".repeat(48);
+    expect(deedNumber(fingerprintHex, DEED.draftedAt)).toBe(`N°${NBSP}2026-1A2B-3C4D-5E6F-7A8B`);
+  });
+
+  it("deux empreintes qui ne diffèrent qu'au 9e caractère ont deux numéros (64 bits, pas 32)", () => {
+    const first = `${"0".repeat(8)}1${"0".repeat(55)}`;
+    const second = `${"0".repeat(8)}2${"0".repeat(55)}`;
+    expect(deedNumber(first, DEED.draftedAt)).not.toBe(deedNumber(second, DEED.draftedAt));
   });
 
   it("l'année est celle de t en UTC, pas dans le fuseau de l'appareil", () => {
     // 31/12/2026 23:30 UTC : déjà 2027 à Paris, encore 2026 en UTC.
-    const print = "f".repeat(64);
-    expect(deedNumber(print, Date.UTC(2026, 11, 31, 23, 30))).toBe(`N°${NBSP}2026-FFFF-FFFF`);
+    const fingerprintHex = "f".repeat(64);
+    expect(deedNumber(fingerprintHex, Date.UTC(2026, 11, 31, 23, 30))).toBe(
+      `N°${NBSP}2026-FFFF-FFFF-FFFF-FFFF`,
+    );
+  });
+
+  it("le numéro suit l'oracle node:crypto sur un acte réel", async () => {
+    const hex = sha256(canonicalJson(DEED)).toUpperCase();
+    expect(deedNumber(await fingerprint(DEED, digest), DEED.draftedAt)).toBe(
+      `N°${NBSP}2026-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`,
+    );
   });
 
   it("CL-6 · sans empreinte : « N° NON-SCELLÉ »", () => {

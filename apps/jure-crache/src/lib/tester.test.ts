@@ -70,10 +70,15 @@ function deedOf(state: LinkState): Deed {
 
 const nodeDigest: Digest = (data) => webcrypto.subtle.digest("SHA-256", data);
 
-/** Numéro attendu d'après la spec, calculé indépendamment (node:crypto). */
+/**
+ * Numéro attendu d'après la spec, calculé indépendamment (node:crypto). Mis à jour au tour 2 par
+ * le builder : la spec (specs/jure-crache.md, ligne 49) passe à `N° AAAA-XXXX-XXXX-XXXX-XXXX`,
+ * 16 premiers hex de l'empreinte (64 bits).
+ */
 function specNumber(deed: DeedJson): string {
   const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex").toUpperCase();
-  return `N°${NBSP}${new Date(deed.t).getUTCFullYear()}-${hex.slice(0, 4)}-${hex.slice(4, 8)}`;
+  const groups = [0, 4, 8, 12].map((start) => hex.slice(start, start + 4)).join("-");
+  return `N°${NBSP}${new Date(deed.t).getUTCFullYear()}-${groups}`;
 }
 
 async function shownNumber(hash: string, now = NOW): Promise<string> {
@@ -163,16 +168,18 @@ describe("CL-2 · payload hostile", () => {
     expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
   });
 
-  it("CL-2 · un payload qui décompresse en 4096 octets UTF-8 exactement est accepté", () => {
+  // Mis à jour au tour 2 par le builder : la spec (specs/jure-crache.md, ligne 41) mesure les
+  // 4 Ko décodés en unités UTF-16 (`decoded.length`), plus en octets UTF-8.
+  it("CL-2 · un payload qui décompresse en 4096 unités UTF-16 exactement est accepté", () => {
     const json = canonical(BASE);
-    const padded = `${json.slice(0, -1)}${" ".repeat(4096 - new TextEncoder().encode(json).length)}}`;
-    expect(new TextEncoder().encode(padded).length).toBe(4096);
+    const padded = `${json.slice(0, -1)}${" ".repeat(4096 - json.length)}}`;
+    expect(padded.length).toBe(4096);
     expect(parseHash(hashOfJson(padded), NOW).screen).toBe("deed");
   });
 
-  it("CL-2 · 4097 octets décompressés → Acte illisible", () => {
+  it("CL-2 · 4097 unités UTF-16 décompressées → Acte illisible", () => {
     const json = canonical(BASE);
-    const padded = `${json.slice(0, -1)}${" ".repeat(4097 - new TextEncoder().encode(json).length)}}`;
+    const padded = `${json.slice(0, -1)}${" ".repeat(4097 - json.length)}}`;
     expect(parseHash(hashOfJson(padded), NOW).screen).toBe("unreadable");
   });
 
@@ -334,7 +341,7 @@ describe("CA-3 · numéro d'acte", () => {
     expect(canonicalJson(deed)).toBe(canonical(BASE));
   });
 
-  it("CA-3 · N° AAAA-XXXX-XXXX : année de t, 8 premiers hex du SHA-256, en majuscules", async () => {
+  it("CA-3 · N° AAAA-XXXX-XXXX-XXXX-XXXX : année de t, 16 premiers hex du SHA-256, en majuscules", async () => {
     expect(await shownNumber(hashOf(BASE))).toBe(specNumber(BASE));
   });
 

@@ -3,7 +3,7 @@
 // de tiret cadratin (CLAUDE.md).
 import { NBSP } from "@paperasse/shared/typography";
 import { LIMITS, type Deed } from "./deed";
-import type { FieldErrorCode, FieldName } from "./draft";
+import type { FieldError, TextField } from "./draft";
 import type { Notice, UnreadableReason, Verdict } from "./link";
 
 export const TEXT = {
@@ -34,7 +34,7 @@ export const TEXT = {
   deadlineLabel: "Échéance du pari",
   deadlineHint: "Date et heure de votre appareil.",
   seal: "Sceller l'acte",
-  linkTooLong: `Acte trop long pour tenir dans un lien${NBSP}: raccourcissez un texte.`,
+  linkTooLong: `Acte trop long pour tenir dans un lien${NBSP}: raccourcissez le texte signalé.`,
   clock: `L'horloge de cet appareil indique une date antérieure à 2026${NBSP}: réglez-la avant de sceller.`,
 
   // Acte
@@ -112,40 +112,53 @@ export function errorSummary(count: number): string {
   return count >= 2 ? `${count} champs à corriger.` : "1 champ à corriger.";
 }
 
-const EMPTY: Readonly<Record<FieldName, string>> = {
+const EMPTY: Readonly<Record<TextField, string>> = {
   bettor: "Indiquez qui parie.",
   opponent: "Indiquez contre qui.",
   subject: "Dites sur quoi porte le pari.",
   stake: "Dites ce qui est en jeu.",
   article: `Article vide${NBSP}: écrivez-le ou retirez-le.`,
-  deadline: "Indiquez la date et l'heure de l'échéance.",
 };
 
-const MAX: Readonly<Record<FieldName, number>> = {
+/** Borne de chaque texte libre, en caractères (points de code). */
+const MAX: Readonly<Record<TextField, number>> = {
   bettor: LIMITS.nameMax,
   opponent: LIMITS.nameMax,
   subject: LIMITS.subjectMax,
   stake: LIMITS.stakeMax,
   article: LIMITS.articleMax,
-  deadline: 0,
 };
 
 /** Message d'erreur d'un champ du formulaire (CA-1). */
-export function fieldErrorText(field: FieldName, code: FieldErrorCode): string {
-  switch (code) {
+export function fieldErrorText(error: FieldError): string {
+  if (error.field === "deadline") {
+    switch (error.code) {
+      case "missing-date":
+        return "Indiquez la date et l'heure de l'échéance.";
+      case "nonexistent-time":
+        return `Cette heure n'existe pas sur cet appareil${NBSP}: les horloges la sautent au passage à l'heure d'été. Choisissez-en une autre.`;
+      case "past-date":
+        return "Cette échéance est déjà passée. On ne parie pas sur le passé.";
+      case "too-far":
+        return `L'échéance doit tomber dans les ${LIMITS.maxYears} ans. Au-delà, plus personne ne s'en souviendra.`;
+    }
+  }
+  switch (error.code) {
     case "empty":
-      return EMPTY[field];
+      return EMPTY[error.field];
     case "too-long":
-      return `${MAX[field]} caractères au maximum.`;
+      return `${MAX[error.field]} caractères au maximum.`;
     case "same-names":
       return "Le contre-parieur doit être une autre personne que le parieur. On ne parie pas contre soi-même.";
-    case "missing-date":
-      return EMPTY.deadline;
-    case "past-date":
-      return "Cette échéance est déjà passée. On ne parie pas sur le passé.";
-    case "too-far":
-      return `L'échéance doit tomber dans les ${LIMITS.maxYears} ans. Au-delà, plus personne ne s'en souviendra.`;
+    case "link-too-long":
+      return `Ce texte prend trop de place dans le lien de l'acte${NBSP}: raccourcissez-le.`;
   }
+}
+
+/** Résumé en tête du bouton « Sceller l'acte » : nombre de champs, ou acte trop long. */
+export function formErrorText(errors: readonly FieldError[]): string {
+  if (errors.length === 1 && errors[0]?.code === "link-too-long") return TEXT.linkTooLong;
+  return errorSummary(errors.length);
 }
 
 /** Ce qui ne va pas dans un lien refusé, sous le titre « Acte illisible ». */
@@ -198,11 +211,12 @@ export function deadlineLine(when: string): string {
 }
 
 /**
- * Ligne qui remplace le compte à rebours d'un acte jugé. Le lien ne dit pas quand le verdict a
- * été déclaré : on ne date le jugement que par l'échéance, et on dit s'il a été rendu avant.
+ * Ligne qui remplace le compte à rebours d'un acte jugé : « Verdict déclaré. Échéance du pari :
+ * 17 octobre 2026. » Le lien ne dit pas quand le verdict a été déclaré : aucune date de jugement
+ * n'est affichée (spec, écran 3).
  */
-export function judgedLine(deadlineDate: string, beforeDeadline: boolean): string {
-  return beforeDeadline ? `Jugé avant l'échéance du ${deadlineDate}.` : `Jugé le ${deadlineDate}.`;
+export function judgedLine(deadlineDate: string): string {
+  return `Verdict déclaré. ${TEXT.deadlineHeading}${NBSP}: ${deadlineDate}.`;
 }
 
 /** « Vainqueur déclaré : Théo. » ou « Match nul déclaré. » */

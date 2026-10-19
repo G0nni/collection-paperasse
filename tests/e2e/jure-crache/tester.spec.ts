@@ -82,11 +82,21 @@ function hashOf(deed: DeedJson | string, suffix = ""): string {
   return `#1.${payloadOf(json)}${suffix}`;
 }
 
-/** Numéro attendu d'après la spec : « N° AAAA-XXXX-XXXX ». */
+/**
+ * Numéro attendu d'après la spec : « N° AAAA-XXXX-XXXX-XXXX-XXXX ». Mis à jour au tour 2 par le
+ * builder : la spec (specs/jure-crache.md, ligne 49) passe de 8 à 16 caractères hexadécimaux.
+ */
 function expectedNumber(deed: DeedJson): string {
   const hex = createHash("sha256").update(canonical(deed), "utf8").digest("hex").toUpperCase();
-  return `N° ${new Date(deed.t).getUTCFullYear()}-${hex.slice(0, 4)}-${hex.slice(4, 8)}`;
+  const groups = [0, 4, 8, 12].map((start) => hex.slice(start, start + 4)).join("-");
+  return `N° ${new Date(deed.t).getUTCFullYear()}-${groups}`;
 }
+
+/**
+ * Ligne de l'acte jugé (spec, ligne 14) : « Verdict déclaré. Échéance du pari : <date> ».
+ * Remplace « Jugé … » au tour 2 (builder).
+ */
+const JUDGED_LINE = /^Verdict déclaré\.\sÉchéance du pari\s:\s/u;
 
 /** Texte de la spec → regex tolérant aux insécables et à l'apostrophe typographique. */
 function specText(text: string): RegExp {
@@ -128,7 +138,7 @@ function deedArticle(page: Page): Locator {
   return page.getByRole("article", { name: "Acte de pari" });
 }
 function deedNumber(page: Page): Locator {
-  return deedArticle(page).getByText(/^N°\s(?:\d{4}-[0-9A-F]{4}-[0-9A-F]{4}|NON-SCELLÉ)$/u);
+  return deedArticle(page).getByText(/^N°\s(?:\d{4}(?:-[0-9A-F]{4}){4}|NON-SCELLÉ)$/u);
 }
 function party(page: Page, role: "Le parieur" | "Le contre-parieur"): Locator {
   return deedArticle(page).getByRole("region", { name: role, exact: true });
@@ -809,7 +819,7 @@ test.describe("CA-2 · Recharger, ouvrir ailleurs", () => {
 // ==============================================================================================
 
 test.describe("CA-3 · Numéro d'acte", () => {
-  test("CA-3 · le numéro est N° AAAA-XXXX-XXXX : année de t, 8 premiers hex du SHA-256 du JSON canonique", async ({
+  test("CA-3 · le numéro est N° AAAA-XXXX-XXXX-XXXX-XXXX : année de t, 16 premiers hex du SHA-256 du JSON canonique", async ({
     page,
   }) => {
     await openDeed(page, hashOf(BASE));
@@ -1032,7 +1042,7 @@ test.describe("CA-5 · Verdict", () => {
       await expect(party(page, winner).getByText("VAINQUEUR", { exact: true })).toBeVisible();
       await expect(party(page, loser).getByText("VAINQUEUR", { exact: true })).toBeHidden();
       await expect(page.getByRole("timer")).toBeHidden();
-      await expect(deedArticle(page).getByText(/^Jugé/u)).toBeVisible();
+      await expect(deedArticle(page).getByText(JUDGED_LINE)).toBeVisible();
       await expect(deedArticle(page).getByText(exactText(VERDICT_NOTE))).toBeVisible();
       await expect(deedNumber(page)).toHaveText(exactText(expectedNumber(BASE)));
     });
@@ -1054,7 +1064,7 @@ test.describe("CA-5 · Verdict", () => {
     await expect(deedArticle(page).getByText(exactText(VERDICT_NOTE))).toBeVisible();
   });
 
-  test("CA-5 · acte jugé ouvert par lien : tampon, « Jugé … », avertissement honnête, pas de compte à rebours", async ({
+  test("CA-5 · acte jugé ouvert par lien : tampon, « Verdict déclaré. Échéance du pari : … », avertissement honnête, pas de compte à rebours", async ({
     page,
   }) => {
     await openDeed(page, hashOf(BASE, ".c"));
@@ -1062,7 +1072,7 @@ test.describe("CA-5 · Verdict", () => {
       party(page, "Le contre-parieur").getByText("VAINQUEUR", { exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("timer")).toBeHidden();
-    await expect(deedArticle(page).getByText(/^Jugé/u)).toBeVisible();
+    await expect(deedArticle(page).getByText(JUDGED_LINE)).toBeVisible();
     await expect(deedArticle(page).getByText(exactText(VERDICT_NOTE))).toBeVisible();
   });
 

@@ -42,10 +42,10 @@ import {
   rateSum,
   receiptLines,
 } from "../lib/meter";
-import { everySecond, summaryDue } from "../lib/ticker";
+import { createCopier } from "@paperasse/shared/copy";
+import { byId, fillList, setText, slot } from "@paperasse/shared/dom";
+import { everySecond, summaryDue } from "@paperasse/shared/ticker";
 import { parseEnum } from "@paperasse/shared/url";
-import { byId, fillList, setText, slot } from "./dom";
-import { createCopier } from "./copy";
 
 // ---------------------------------------------------------------------------------------------
 // Éléments
@@ -87,11 +87,14 @@ const view = {
   template: byId("person-template", HTMLTemplateElement),
 };
 
-const copier = createCopier({
-  status: byId("copy-status", HTMLElement),
-  dialog: byId("copy-dialog", HTMLDialogElement),
-  field: byId("copy-field", HTMLInputElement),
-});
+const copier = createCopier(
+  {
+    status: byId("copy-status", HTMLElement),
+    dialog: byId("copy-dialog", HTMLDialogElement),
+    field: byId("copy-field", HTMLInputElement),
+  },
+  TEXT.copied,
+);
 
 const tariffInputs = [...view.form.querySelectorAll('input[name="tariff"]')].filter(
   (input) => input instanceof HTMLInputElement,

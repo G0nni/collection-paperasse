@@ -7,7 +7,10 @@ import { createHash } from "node:crypto";
 import { canonicalJson, type Deed } from "../../../apps/jure-crache/src/lib/deed";
 import { DEFAULT_ARTICLES } from "../../../apps/jure-crache/src/lib/draft";
 import { buildHash, compressPayload } from "../../../apps/jure-crache/src/lib/link";
+import { TEXT } from "../../../apps/jure-crache/src/lib/messages";
+import { WAX_PALETTE } from "../../../apps/jure-crache/src/lib/seal";
 import { sanitizeText } from "../../../packages/shared/src/text";
+import { countIgnoringSpaces, pdfPageTexts } from "../support/pdf";
 import { NBSP, normalizeSpaces, perceivedTexts, typographyIssues } from "../support/text";
 
 const BASE = "jure-crache/";
@@ -50,11 +53,16 @@ const linkOf = (deed: Deed, verdict: "p" | "c" | "n" | null = null) =>
 /** Hash d'un JSON quelconque, compressé comme le ferait l'app. */
 const rawLink = (json: string, suffix = "") => `${BASE}#1.${compressPayload(json)}${suffix}`;
 
-/** Numéro attendu, calculé par node:crypto (oracle indépendant de l'app). */
+/** Empreinte de l'acte, calculée par node:crypto (oracle indépendant de l'app). */
+function fingerprintOf(deed: Deed): string {
+  return createHash("sha256").update(canonicalJson(deed), "utf8").digest("hex");
+}
+
+/** Numéro attendu : « N° AAAA-XXXX-XXXX-XXXX-XXXX », 16 premiers hex de l'empreinte (64 bits). */
 function expectedNumber(deed: Deed): string {
-  const hex = createHash("sha256").update(canonicalJson(deed), "utf8").digest("hex");
-  const head = hex.slice(0, 8).toUpperCase();
-  return `N°${NBSP}${new Date(deed.draftedAt).getUTCFullYear()}-${head.slice(0, 4)}-${head.slice(4)}`;
+  const head = fingerprintOf(deed).slice(0, 16).toUpperCase();
+  const groups = [0, 4, 8, 12].map((start) => head.slice(start, start + 4)).join("-");
+  return `N°${NBSP}${new Date(deed.draftedAt).getUTCFullYear()}-${groups}`;
 }
 
 /** Ouvre `url` avec l'horloge figée à `atMs` (figée avant la navigation). */
@@ -65,7 +73,7 @@ async function openAt(page: Page, url: string, atMs: number = NOW) {
 }
 
 const deedArticle = (page: Page) => page.getByRole("article", { name: "Acte de pari" });
-/** Ligne du numéro : « N° 2026-XXXX-XXXX · enregistré le … ». */
+/** Ligne du numéro : « N° 2026-XXXX-XXXX-XXXX-XXXX · enregistré le … ». */
 const deedNumber = (page: Page) =>
   deedArticle(page).getByRole("paragraph").filter({ hasText: /^N°/u });
 const timer = (page: Page) => page.getByRole("timer");
@@ -170,7 +178,7 @@ test.describe("jure-crache · rédaction", () => {
     await expect(deedArticle(page)).toContainText("Sam");
     await expect(deedArticle(page)).toContainText(DEED.subject);
     await expect(deedArticle(page).getByRole("listitem")).toHaveCount(3);
-    await expect(deedNumber(page)).toHaveText(/^N°\u00a02026-[0-9A-F]{4}-[0-9A-F]{4}/u);
+    await expect(deedNumber(page)).toHaveText(/^N°\u00a02026(?:-[0-9A-F]{4}){4} · /u);
     await expect(page.getByRole("button", { name: "Copier le lien de l'acte" })).toBeFocused();
     expect(await page.evaluate(() => history.length)).toBe(historyLength + 1);
 
@@ -235,6 +243,75 @@ test.describe("jure-crache · rédaction", () => {
     await bettor.fill(String.fromCodePoint(0x1f600).repeat(40));
     await sealButton(page).click();
     await expect(deedArticle(page)).toBeVisible();
+  });
+
+  test("CA-1 · acte trop long pour un lien : erreur reliée au texte le plus lourd, focus dessus", async ({
+    page,
+  }) => {
+    await openAt(page, BASE);
+    // Des idéogrammes tous différents se compressent mal : bornes respectées, lien > 4 Ko.
+    let next = 0;
+    const rare = (length: number) =>
+      Array.from({ length }, () => String.fromCodePoint(0x4e00 + ((next++ * 7919) % 20_000))).join(
+        "",
+      );
+    await fillDraft(page, {
+      bettor: rare(40),
+      opponent: rare(40),
+      subject: rare(200),
+      stake: rare(120),
+    });
+    await page.getByRole("button", { name: "Ajouter un article" }).click();
+    await page.getByRole("button", { name: "Ajouter un article" }).click();
+    for (let position = 1; position <= 5; position += 1) {
+      await page.getByRole("textbox", { name: `Article ${position}`, exact: true }).fill(rare(160));
+    }
+    await sealButton(page).click();
+
+    const subject = draftForm(page).getByLabel("Objet du pari");
+    await expect(subject).toBeFocused();
+    await expect(subject).toHaveAttribute("aria-invalid", "true");
+    await expect(subject).toHaveAccessibleDescription(
+      `Ce texte prend trop de place dans le lien de l'acte${NBSP}: raccourcissez-le.`,
+    );
+    await expect(page.getByText(TEXT.linkTooLong)).toBeVisible();
+    for (const label of ["Le parieur", "Le contre-parieur", "Enjeu"]) {
+      await expect(draftForm(page).getByLabel(label, { exact: true })).not.toHaveAttribute(
+        "aria-invalid",
+      );
+    }
+    expect(new URL(page.url()).hash).toBe("");
+
+    // Raccourci, l'acte tient : le message s'efface pendant la frappe, l'acte se scelle.
+    await subject.fill("Court.");
+    for (let position = 1; position <= 5; position += 1) {
+      await page.getByRole("textbox", { name: `Article ${position}`, exact: true }).fill("Court.");
+    }
+    await expect(subject).not.toHaveAttribute("aria-invalid");
+    await expect(page.getByText(TEXT.linkTooLong)).toBeHidden();
+    await sealButton(page).click();
+    await expect(deedArticle(page)).toBeVisible();
+  });
+
+  test("échéance à une heure qui n'existe pas (passage à l'heure d'été, Paris) : refusée avec un message", async ({
+    page,
+  }) => {
+    await openAt(page, BASE);
+    // Dimanche 28 mars 2027 : à Paris, les horloges passent de 1 h 59 à 3 h 00.
+    await fillDraft(page, { deadline: "2027-03-28T02:30" });
+    await sealButton(page).click();
+    const deadline = draftForm(page).getByLabel("Échéance du pari");
+    await expect(deadline).toBeFocused();
+    await expect(deadline).toHaveAttribute("aria-invalid", "true");
+    await expect(deadline).toHaveAccessibleDescription(
+      new RegExp(`Cette heure n'existe pas sur cet appareil${NBSP}: .*heure d'été`, "u"),
+    );
+    expect(new URL(page.url()).hash).toBe("");
+    // 3 h 00 le même jour existe : l'acte se scelle.
+    await deadline.fill("2027-03-28T03:00");
+    await sealButton(page).click();
+    await expect(deedArticle(page)).toBeVisible();
+    await expect(deedArticle(page)).toContainText("28 mars 2027 à 03:00");
   });
 
   test("CL-4 · « Théo » / « théo » : erreur sur le contre-parieur, rien n'est scellé", async ({
@@ -421,22 +498,30 @@ test.describe("jure-crache · acte", () => {
     expect(second[1]).not.toBe(first[1]);
   });
 
-  test("cire : une des 4 teintes de la palette, choisie par l'empreinte", async ({ page }) => {
-    const palette = ["rgb(158, 42, 36)", "rgb(30, 70, 54)", "rgb(43, 58, 103)", "rgb(122, 75, 18)"];
-    const seen = new Set<string>();
+  test("cire : data-wax vient du dernier octet de l'empreinte, et la teinte rendue est celle de la palette", async ({
+    page,
+  }) => {
+    // La palette vit deux fois (WAX_PALETTE en TS, data-wax en CSS) : ce test les relie au rendu.
+    const rgb = (hex: string) => {
+      const value = Number.parseInt(hex.slice(1), 16);
+      return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
+    };
+    const seen = new Set<number>();
     await openAt(page, linkOf(DEED));
-    for (let index = 0; index < 12; index += 1) {
-      await page.goto(linkOf({ ...DEED, bettor: `Théo ${index}` }));
-      await expect(deedArticle(page)).toContainText(`Théo ${index}`);
-      const wax = await deedArticle(page)
-        .getByRole("img", { name: /Sceau de cire/u })
-        .locator("circle")
-        .first()
+    for (let index = 0; seen.size < WAX_PALETTE.length && index < 40; index += 1) {
+      const deed = { ...DEED, bettor: `Théo ${index}` };
+      const expected = Number.parseInt(fingerprintOf(deed).slice(-2), 16) % WAX_PALETTE.length;
+      await page.goto(linkOf(deed));
+      await expect(deedNumber(page)).toContainText(expectedNumber(deed));
+      const seal = deedArticle(page).getByRole("img", { name: /Sceau de cire/u });
+      await expect(seal).toHaveAttribute("data-wax", String(expected));
+      const fill = await seal
+        .locator("circle.wax")
         .evaluate((circle) => getComputedStyle(circle).fill);
-      expect(palette).toContain(wax);
-      seen.add(wax);
+      expect(fill, `acte ${index}, teinte ${expected}`).toBe(rgb(WAX_PALETTE[expected] ?? ""));
+      seen.add(expected);
     }
-    expect(seen.size).toBeGreaterThan(1);
+    expect([...seen].sort()).toEqual([0, 1, 2, 3]);
   });
 
   test("CA-4 · compte à rebours jours/heures/min/sec, mis à jour chaque seconde", async ({
@@ -614,9 +699,13 @@ test.describe("jure-crache · verdict", () => {
           `Vainqueur déclaré${NBSP}: ${verdict === "p" ? "Théo" : "Sam"}.`,
         );
       }
-      // Compte à rebours remplacé par « Jugé … », verdict déclaratif dit honnêtement.
+      // Compte à rebours remplacé par « Verdict déclaré. Échéance du pari : … », sans date de
+      // verdict ; verdict déclaratif dit honnêtement.
       await expect(timer(page)).toBeHidden();
-      await expect(article.getByText(/^Jugé /u)).toBeVisible();
+      await expect(
+        article.getByText(`Verdict déclaré. Échéance du pari${NBSP}: 17 octobre 2026.`),
+      ).toBeVisible();
+      await expect(article.getByText(/Jugé/u)).toHaveCount(0);
       await expect(
         article.getByText(
           "Verdict déclaré par la personne qui a envoyé ce lien. En cas de litige, le tribunal des potes statue en dernier ressort.",
@@ -631,10 +720,16 @@ test.describe("jure-crache · verdict", () => {
     });
   }
 
-  test("Acte jugé après l'échéance : « Jugé le 17 octobre 2026. »", async ({ page }) => {
+  test("Acte jugé après l'échéance : même ligne, aucune date de verdict inventée", async ({
+    page,
+  }) => {
     await openAt(page, linkOf(DEED, "c"), D + 86_400_000);
-    await expect(deedArticle(page).getByText("Jugé le 17 octobre 2026.")).toBeVisible();
+    await expect(
+      deedArticle(page).getByText(`Verdict déclaré. Échéance du pari${NBSP}: 17 octobre 2026.`),
+    ).toBeVisible();
     await expect(page.getByText(/^Échéance passée/u)).toBeHidden();
+    // Ni « Jugé le 18 octobre » (l'heure de l'appareil), ni « Jugé le 17 octobre ».
+    await expect(deedArticle(page).getByText(/Jugé|18 octobre/u)).toHaveCount(0);
   });
 
   test("Acte jugé : « Modifier le verdict » rouvre le dialogue", async ({ page }) => {
@@ -774,6 +869,206 @@ test.describe("jure-crache · impression et copie", () => {
       await expect(copy).toBeFocused();
     });
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// CA-6 · une page A4 par construction (tour 2)
+// ---------------------------------------------------------------------------------------------
+
+/** Largeur imprimable d'une A4 aux marges de @page (210 − 2 × 10 mm), en px CSS. */
+const A4_PRINT_WIDTH = Math.floor(((210 - 20) / 25.4) * 96);
+
+const CJK = "契約書証人印鑑署名期限賭事裁判友達遅刻言訳鉄道";
+const cjk = (length: number, seed: number) =>
+  Array.from({ length }, (_, index) => CJK[(index * 5 + seed) % CJK.length] ?? "契").join("");
+
+/** Actes légitimes les plus larges : prose (LONGEST), « W » sans espace, idéogrammes. */
+const LEGIT_AT_BOUNDS: readonly (readonly [string, Deed])[] = [
+  ["prose aux bornes", LONGEST],
+  [
+    "« W » sans espace aux bornes",
+    {
+      ...LONGEST,
+      bettor: "W".repeat(40),
+      opponent: "M".repeat(40),
+      subject: "W".repeat(200),
+      stake: "M".repeat(120),
+      articles: Array.from({ length: 5 }, () => "W".repeat(160)),
+    },
+  ],
+  [
+    "idéogrammes aux bornes",
+    {
+      ...LONGEST,
+      bettor: cjk(40, 1),
+      opponent: cjk(40, 2),
+      subject: cjk(200, 3),
+      stake: cjk(120, 4),
+      articles: [5, 6, 7, 8, 9].map((seed) => cjk(160, seed)),
+    },
+  ],
+];
+
+/** U+FDFD répété aux bornes : le lien le plus « large » qu'accepte le schéma (forgé). */
+const WIDE = String.fromCodePoint(0xfdfd);
+const FORGED_WIDE: Deed = {
+  ...LONGEST,
+  bettor: WIDE.repeat(40),
+  opponent: `x${WIDE.repeat(39)}`,
+  subject: WIDE.repeat(200),
+  stake: WIDE.repeat(120),
+  articles: Array.from({ length: 5 }, () => WIDE.repeat(160)),
+};
+
+/** Textes libres coupés par leur plafond d'impression ; vide si tout est lisible en entier. */
+function clippedFreeTexts(): string[] {
+  const texts = [...document.querySelectorAll("#deed .free-text, #deed .article-list li")].filter(
+    (element) => element.getClientRects().length > 0,
+  );
+  if (texts.length < 9) return [`seulement ${texts.length} textes libres trouvés`];
+  return texts.flatMap((element) => {
+    const label = `${element.id || "article"} (${(element.textContent ?? "").slice(0, 12)})`;
+    const problems: string[] = [];
+    if (getComputedStyle(element).maxHeight === "none") problems.push(`${label} sans plafond`);
+    // scrollHeight et clientHeight sont arrondis au pixel : une vraie coupure dépasse d'une ligne.
+    if (element.scrollHeight > element.clientHeight + 1) {
+      problems.push(`${label} coupé : ${element.scrollHeight} > ${element.clientHeight}`);
+    }
+    if (element.scrollWidth > element.clientWidth + 1) {
+      problems.push(`${label} déborde : ${element.scrollWidth} > ${element.clientWidth}`);
+    }
+    return problems;
+  });
+}
+
+/** Pages du PDF A4 de la page courante (taille et marges de @page). */
+async function printPdf(page: Page): Promise<Buffer> {
+  await page.evaluate(() => document.fonts.ready);
+  return page.pdf({ format: "A4", preferCSSPageSize: true, printBackground: true });
+}
+
+function pdfPageCount(pdf: Buffer): number {
+  return (pdf.toString("latin1").match(/\/Type\s*\/Page(?![s\w])/gu) ?? []).length;
+}
+
+/** Ajoute une feuille de style à la page (CSSOM : la CSP n'a rien à autoriser). */
+async function addSheet(page: Page, css: string) {
+  await page.evaluate((text) => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(text);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  }, css);
+}
+
+test.describe("jure-crache · CA-6 · une page A4 par construction", () => {
+  for (const [label, deed] of LEGIT_AT_BOUNDS) {
+    for (const verdict of [null, "p", "n"] as const) {
+      test(`CA-6 · ${label}${verdict ? `, jugé (${verdict})` : ""} : aucun texte libre coupé à l'impression`, async ({
+        page,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== "desktop", "largeur A4 fixée par le test");
+        await page.setViewportSize({ width: A4_PRINT_WIDTH, height: 1100 });
+        await openAt(page, linkOf(deed, verdict));
+        await expect(deedNumber(page)).toContainText(expectedNumber(deed));
+        await page.emulateMedia({ media: "print" });
+        await page.evaluate(() => document.fonts.ready);
+        expect(await page.evaluate(clippedFreeTexts)).toEqual([]);
+        expect(pdfPageCount(await printPdf(page))).toBe(1);
+      });
+    }
+  }
+
+  test("CA-6 · haut de page masqué à l'impression : ni en-tête, ni messages, ni espace avant l'acte", async ({
+    page,
+  }) => {
+    await openAt(page, `${linkOf(DEED)}.z`);
+    await expect(page.getByText(/Verdict inconnu/u)).toBeVisible();
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator("main > .top")).toBeHidden();
+    await expect(page.getByText(/Verdict inconnu/u)).toBeHidden();
+    const [mainBox, articleBox] = [
+      await page.locator("main").boundingBox(),
+      await deedArticle(page).boundingBox(),
+    ];
+    if (mainBox === null || articleBox === null) throw new Error("boîtes");
+    expect(articleBox.y - mainBox.y).toBeLessThanOrEqual(1);
+  });
+
+  for (const verdict of ["p", null] as const) {
+    test(`CA-6 · pire cas forgé${verdict ? `, jugé (${verdict})` : ""} : chaque texte libre rempli jusqu'à son plafond, non scellé : une page`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+      await page.addInitScript(() => {
+        Object.defineProperty(Crypto.prototype, "subtle", {
+          configurable: true,
+          get: () => undefined,
+        });
+      });
+      await openAt(page, linkOf(FORGED_WIDE, verdict));
+      await expect(deedNumber(page)).toContainText(`N°${NBSP}NON-SCELLÉ`);
+      // Hauteur maximale de chaque texte libre, atteinte d'office : l'acte le plus haut possible.
+      await addSheet(
+        page,
+        "@media print { .free-text, .article-list li { min-height: calc(var(--print-lines) * 1lh); } }",
+      );
+      expect(pdfPageCount(await printPdf(page))).toBe(1);
+    });
+  }
+
+  test("CA-6 · lien forgé en U+FDFD : une page, le pied d'acte imprimé dans l'acte et dans la marge", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+    await openAt(page, linkOf(FORGED_WIDE));
+    await expect(deedNumber(page)).toContainText(expectedNumber(FORGED_WIDE));
+    const pages = pdfPageTexts(await printPdf(page));
+    expect(pages).toHaveLength(1);
+    // Une fois en bas de l'acte, une fois dans la marge basse (@page) : sur chaque page.
+    expect(pages.map((text) => countIgnoringSpaces(text, TEXT.footer))).toEqual([2]);
+  });
+
+  test("CA-6 · si l'acte s'étale malgré tout sur plusieurs pages, le pied est sur chacune (@page)", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "le PDF ne dépend pas de la fenêtre");
+    await openAt(page, linkOf(FORGED_WIDE));
+    await expect(deedNumber(page)).toContainText(expectedNumber(FORGED_WIDE));
+    // On force un débordement que la feuille d'impression empêche : plafonds levés, gros corps.
+    await addSheet(
+      page,
+      "@media print { .free-text, .article-list li { max-height: none !important; font-size: 16pt !important; } }",
+    );
+    const pages = pdfPageTexts(await printPdf(page));
+    expect(pages.length).toBeGreaterThanOrEqual(2);
+    const counts = pages.map((text) => countIgnoringSpaces(text, TEXT.footer));
+    expect(
+      counts.every((count) => count >= 1),
+      `pied par page : ${counts.join(", ")}`,
+    ).toBe(true);
+    // Le pied de l'acte n'est qu'à la fin ; tous les autres viennent de la marge de @page.
+    expect(counts.reduce((sum, count) => sum + count, 0)).toBe(pages.length + 1);
+  });
+
+  test("CL-6 · à l'impression, « N° NON-SCELLÉ » est accompagné de son explication", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(Crypto.prototype, "subtle", {
+        configurable: true,
+        get: () => undefined,
+      });
+    });
+    await openAt(page, linkOf(DEED));
+    await expect(deedNumber(page)).toContainText(`N°${NBSP}NON-SCELLÉ`);
+    await page.emulateMedia({ media: "print" });
+    const explanation = page.getByText(/^Numéro non scellé/u);
+    await expect(explanation).toBeVisible();
+    await expect(explanation).toContainText("son numéro ne prouve rien");
+    const [text = ""] = pdfPageTexts(await printPdf(page));
+    expect(countIgnoringSpaces(text, `N°${NBSP}NON-SCELLÉ`)).toBe(1);
+    expect(countIgnoringSpaces(text, TEXT.unsealed)).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -975,6 +1270,25 @@ test.describe("jure-crache · cas limites", () => {
     });
   }
 
+  test("écrans de refus : un seul bouton pour recommencer (« Nouvel acte » masqué)", async ({
+    page,
+  }) => {
+    for (const [url, heading] of [
+      [rawLink("[]"), "Acte illisible"],
+      [`${BASE}#2.xxx`, "Acte d'une version inconnue"],
+    ] as const) {
+      await openAt(page, url);
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Nouvel acte", exact: true })).toBeHidden();
+      await expect(page.getByRole("button", { name: /nouvel acte/iu })).toHaveCount(1);
+      await page.close();
+      page = await page.context().newPage();
+    }
+    // Sur l'acte, « Nouvel acte » reste là.
+    await openAt(page, linkOf(DEED));
+    await expect(page.getByRole("button", { name: "Nouvel acte", exact: true })).toBeVisible();
+  });
+
   test('CL-2 · lz-string qui renvoie null ou "" → « Acte illisible »', async ({ page }) => {
     for (const payload of ["xxx", "A"]) {
       await openAt(page, `${BASE}#1.${payload}`);
@@ -990,8 +1304,8 @@ test.describe("jure-crache · cas limites", () => {
     await openAt(page, `${BASE}#1.${"A".repeat(4100)}`);
     await expect(page.getByRole("heading", { name: "Acte illisible" })).toBeVisible();
     await expect(page.getByText("Lien trop long (plus de 4 Ko).")).toBeVisible();
-    // Une bombe de décompression : quelques centaines de caractères, un million une fois décodés.
-    await page.goto(`${BASE}#1.${compressPayload("a".repeat(1_000_000))}`);
+    // Une bombe de décompression : quelques centaines de caractères, 200 000 une fois décodés.
+    await page.goto(`${BASE}#1.${compressPayload("a".repeat(200_000))}`);
     await expect(page.getByText("Acte trop long une fois décodé (plus de 4 Ko).")).toBeVisible();
   });
 

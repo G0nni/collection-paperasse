@@ -1,9 +1,20 @@
 // Chaque texte d'interface passe l'oracle typographique de la collection (insécables, pas de
 // tiret cadratin), dans toutes ses variantes.
 import { describe, expect, it } from "vitest";
-import { EM_DASH, findTypographyIssues, formatTypographyIssue } from "@paperasse/shared/typography";
+import {
+  EM_DASH,
+  NBSP,
+  findTypographyIssues,
+  formatTypographyIssue,
+} from "@paperasse/shared/typography";
 import type { Deed, DeedError } from "./deed";
-import { DEFAULT_ARTICLES, type FieldErrorCode, type FieldName } from "./draft";
+import {
+  DEFAULT_ARTICLES,
+  type DeadlineErrorCode,
+  type FieldError,
+  type TextErrorCode,
+  type TextField,
+} from "./draft";
 import { formatDate, formatDateTime } from "./format";
 import type { UnreadableReason } from "./link";
 import {
@@ -13,6 +24,7 @@ import {
   deadlineLine,
   errorSummary,
   fieldErrorText,
+  formErrorText,
   judgedLine,
   noticeText,
   registeredLine,
@@ -32,14 +44,19 @@ const DEED: Deed = {
   draftedAt: Date.UTC(2026, 9, 14, 9),
 };
 
-const FIELDS: FieldName[] = ["bettor", "opponent", "subject", "stake", "article", "deadline"];
-const CODES: FieldErrorCode[] = [
-  "empty",
-  "too-long",
-  "same-names",
+const TEXT_FIELDS: TextField[] = ["bettor", "opponent", "subject", "stake", "article"];
+const TEXT_CODES: TextErrorCode[] = ["empty", "too-long", "same-names", "link-too-long"];
+const DEADLINE_CODES: DeadlineErrorCode[] = [
   "missing-date",
+  "nonexistent-time",
   "past-date",
   "too-far",
+];
+const FIELD_ERRORS: FieldError[] = [
+  ...TEXT_FIELDS.flatMap((field) =>
+    TEXT_CODES.map((code): FieldError => ({ field, index: 0, code })),
+  ),
+  ...DEADLINE_CODES.map((code): FieldError => ({ field: "deadline", index: 0, code })),
 ];
 const DEED_ERRORS: DeedError[] = [
   "not-object",
@@ -68,14 +85,15 @@ function allTexts(): string[] {
     ...[1, 5].flatMap((n) => [articleLabel(n), articlePrefix(n), removeArticleContext(n)]),
     errorSummary(1),
     errorSummary(3),
-    ...FIELDS.flatMap((field) => CODES.map((code) => fieldErrorText(field, code))),
+    ...FIELD_ERRORS.map(fieldErrorText),
+    formErrorText(FIELD_ERRORS),
+    formErrorText([{ field: "subject", index: 0, code: "link-too-long" }]),
     ...REASONS.map(unreadableDetail),
     noticeText("unknown-verdict"),
     `${deedNumber("ab".repeat(32), DEED.draftedAt)}${registeredLine(formatDate(DEED.draftedAt, "Europe/Paris"))}`,
     `${UNSEALED_NUMBER}${registeredLine(formatDate(DEED.draftedAt, "Europe/Paris"))}`,
     deadlineLine(when),
-    judgedLine(formatDate(DEED.deadline, "Europe/Paris"), true),
-    judgedLine(formatDate(DEED.deadline, "Europe/Paris"), false),
+    judgedLine(formatDate(DEED.deadline, "Europe/Paris")),
     verdictLine("p", DEED),
     verdictLine("c", DEED),
     verdictLine("n", DEED),
@@ -110,9 +128,45 @@ describe("textes d'interface", () => {
     expect(verdictLine("n", DEED)).toBe("Match nul déclaré.");
   });
 
-  it("« Jugé le … » daté par l'échéance, et dit s'il a été rendu avant", () => {
-    expect(judgedLine("17 octobre 2026", false)).toBe("Jugé le 17 octobre 2026.");
-    expect(judgedLine("17 octobre 2026", true)).toBe("Jugé avant l'échéance du 17 octobre 2026.");
+  it("acte jugé : « Verdict déclaré. Échéance du pari : … », sans date de verdict", () => {
+    expect(judgedLine("17 octobre 2026")).toBe(
+      `Verdict déclaré. Échéance du pari${NBSP}: 17 octobre 2026.`,
+    );
+    expect(judgedLine("17 octobre 2026")).not.toMatch(/Jugé/u);
+  });
+
+  it("erreurs de champ : borne propre à chaque texte, heure sautée, acte trop long", () => {
+    expect(fieldErrorText({ field: "bettor", index: 0, code: "too-long" })).toBe(
+      "40 caractères au maximum.",
+    );
+    expect(fieldErrorText({ field: "subject", index: 0, code: "too-long" })).toBe(
+      "200 caractères au maximum.",
+    );
+    expect(fieldErrorText({ field: "article", index: 2, code: "too-long" })).toBe(
+      "160 caractères au maximum.",
+    );
+    expect(fieldErrorText({ field: "deadline", index: 0, code: "nonexistent-time" })).toMatch(
+      /n'existe pas.*heure d'été/u,
+    );
+    expect(fieldErrorText({ field: "stake", index: 0, code: "link-too-long" })).toMatch(
+      /trop de place dans le lien/u,
+    );
+  });
+
+  it("résumé : « Acte trop long pour tenir dans un lien » seul, sinon le nombre de champs", () => {
+    expect(formErrorText([{ field: "subject", index: 0, code: "link-too-long" }])).toBe(
+      TEXT.linkTooLong,
+    );
+    expect(TEXT.linkTooLong).toMatch(/^Acte trop long pour tenir dans un lien/u);
+    expect(
+      formErrorText([
+        { field: "bettor", index: 0, code: "empty" },
+        { field: "deadline", index: 0, code: "past-date" },
+      ]),
+    ).toBe("2 champs à corriger.");
+    expect(formErrorText([{ field: "bettor", index: 0, code: "empty" }])).toBe(
+      "1 champ à corriger.",
+    );
   });
 });
 
